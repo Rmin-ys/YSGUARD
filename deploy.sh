@@ -123,40 +123,45 @@ setup_telegram() {
     read -p "Press Enter..."
 }
 
+# --- بخش ۴: نسخه نهایی و ضد خطا ---
 setup_auto_healer() {
     cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
-# لود کردن تنظیمات تلگرام
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
-
-# تشخیص آی‌پی مقابل برای پینگ
 TARGET="10.0.0.1"
 if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
 
-# تست پینگ با مهلت زمانی ۲ ثانیه
 PING_RESULT=$(ping -c 4 -W 2 $TARGET | tail -1 | awk '{print $4}' | cut -d '/' -f 2 | cut -d '.' -f 1)
 
 if [ -z "$PING_RESULT" ] || [ "$PING_RESULT" -gt 350 ]; then
-    # گام اول: توقف کامل برای جلوگیری از تداخل
+    # ۱. توقف سرویس‌ها
     systemctl stop tunnel
     wg-quick down wg0 2>/dev/null
-    sleep 1
     
-    # گام دوم: استارت مجدد با وقفه
+    # ۲. پاکسازی اجباری اینترفیس (اگر قفل شده باشه)
+    ip link delete wg0 2>/dev/null
+    
+    # ۳. استارت مجدد موتور تانل
     systemctl start tunnel
-    sleep 2
+    sleep 3  # وقت کافی برای بالا اومدن udp2raw
+    
+    # ۴. استارت مجدد وایرگارد
     wg-quick up wg0
     
-    # گام سوم: اطلاع‌رسانی
+    # ۵. چک نهایی: اگه باز هم بالا نیومد، یکبار دیگه تلاش کن
+    if ! ip addr show wg0 >/dev/null 2>&1; then
+        sleep 2
+        wg-quick up wg0
+    fi
+
     if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Auto-Healed on $(hostname)%0A🔄 Status: Connection Restored!" > /dev/null
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Auto-Healed on $(hostname)%0A🔄 Status: Interface Reconstructed!" > /dev/null
     fi
 fi
 EOF
     chmod +x $HEALER_SCRIPT
-    # حذف تنظیمات قبلی از کرون‌جاب و ثبت مجدد برای جلوگیری از تکرار
     (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Anti-Lag Auto-Healer (v7.9-Fixed) installed successfully.${NC}"
+    echo -e "${GREEN}✔ Anti-Lag Auto-Healer (Ultra-Fix) active.${NC}"
 }
 
 # --- بخش ۵: اصلاح شده ---

@@ -23,7 +23,7 @@
 </div>
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Rmin-ys/Easy-WireGuard/refs/heads/main/deploy.sh -o deploy.sh && chmod +x deploy.sh && sudo ./deploy.sh
+curl -sSL https://raw.githubusercontent.com/Rmin-ys/YSGUARD/refs/heads/main/deploy.sh -o deploy.sh && chmod +x deploy.sh && sudo ./deploy.sh
 ```
 
 

@@ -154,7 +154,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.00 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel: ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard: ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -173,9 +173,15 @@ show_status() {
 
 while true; do
 clear
-echo -e "${CYAN}========================================================"
-echo -e "           MASTER TUNNEL PRO - VERSION 7.2"
-echo -e "========================================================${NC}"
+ echo -e "${CYAN}========================================================"
+    echo -e "${CYAN}██╗   ██╗███████╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ "
+    echo -e "╚██╗ ██╔╝██╔════╝██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗"
+    echo -e " ╚████╔╝ ███████╗██║  ███╗██║   ██║███████║██████╔╝██║  ██║"
+    echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
+    echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
+    echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
+    echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"
 echo "3) Telegram Bot Settings"

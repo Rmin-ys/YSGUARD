@@ -124,12 +124,16 @@ setup_telegram() {
 }
 
 # --- بخش ۴: نسخه نهایی و ضد خطا ---
-# --- بخش ۴: نسخه نهایی با تزریق مسیر سیستم ---
+# --- بخش ۴: نسخه عیب‌یاب (Debug Mode) ---
 setup_auto_healer() {
     cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
-# تعریف مسیرهای استاندارد سیستم برای جلوگیری از خطای دستورات
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# تنظیم مسیرهای سیستم
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# فایل لاگ برای فهمیدن مشکل
+DEBUG_LOG="/tmp/healer_debug.log"
+echo "--- Run at $(date) ---" > $DEBUG_LOG
 
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
 TARGET="10.0.0.1"
@@ -139,29 +143,27 @@ if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
 PING_RESULT=$(ping -c 4 -W 2 $TARGET | tail -1 | awk '{print $4}' | cut -d '/' -f 2 | cut -d '.' -f 1)
 
 if [ -z "$PING_RESULT" ] || [ "$PING_RESULT" -gt 350 ]; then
-    # ۱. توقف سرویس‌ها
-    systemctl stop tunnel
-    wg-quick down wg0 2>/dev/null
+    echo "Connection lost. Restarting..." >> $DEBUG_LOG
     
-    # ۲. پاکسازی ریشه‌ای کارت شبکه
-    ip link delete wg0 2>/dev/null
+    # اجرای دستورات با ذخیره خطاها در لاگ
+    systemctl stop tunnel >> $DEBUG_LOG 2>&1
+    wg-quick down wg0 >> $DEBUG_LOG 2>&1
+    ip link delete wg0 >> $DEBUG_LOG 2>&1
     
-    # ۳. استارت مجدد موتور تانل با وقفه
-    systemctl start tunnel
-    sleep 4
+    systemctl start tunnel >> $DEBUG_LOG 2>&1
+    sleep 5
     
-    # ۴. استارت وایرگارد
-    wg-quick up wg0
+    # تلاش برای بالا آوردن وایرگارد
+    wg-quick up wg0 >> $DEBUG_LOG 2>&1
     
-    # ۵. اطلاع‌رسانی تلگرام
     if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Auto-Healed on $(hostname)%0A🔄 Status: Interface Re-created successfully!" > /dev/null
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Healer Run on $(hostname). Check /tmp/healer_debug.log if tunnel is down." > /dev/null
     fi
 fi
 EOF
     chmod +x $HEALER_SCRIPT
     (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Anti-Lag Auto-Healer (Ultra-Path) active.${NC}"
+    echo -e "${GREEN}✔ Debug Healer installed. Check /tmp/healer_debug.log if it fails.${NC}"
 }
 
 # --- بخش ۵: اصلاح شده ---
@@ -196,7 +198,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -222,7 +224,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

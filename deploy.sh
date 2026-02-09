@@ -65,8 +65,9 @@ Restart=always
 WantedBy=multi-user.target
 EOF
                    systemctl daemon-reload && systemctl enable --now gost-$port
+                   echo -e "${GREEN}✔ Port $port forwarded.${NC}"
                done ;;
-            3) read -p "Port: " R_PORT; systemctl stop gost-$R_PORT 2>/dev/null; systemctl disable gost-$R_PORT 2>/dev/null; rm -f /etc/systemd/system/gost-$R_PORT.service; systemctl daemon-reload ;;
+            3) read -p "Port: " R_PORT; systemctl stop gost-$R_PORT 2>/dev/null; systemctl disable gost-$R_PORT 2>/dev/null; rm -f /etc/systemd/system/gost-$R_PORT.service; systemctl daemon-reload; echo -e "${GREEN}✔ Port $R_PORT removed.${NC}" ;;
             4) ls /etc/systemd/system/gost-*.service 2>/dev/null | cut -d'-' -f2 | cut -d'.' -f1 ;;
             5) break ;;
         esac
@@ -89,9 +90,9 @@ manage_haproxy() {
                        echo -e "listen forward-$port\n    bind :$port\n    mode tcp\n    server srv1 10.0.0.1:$port" >> $HAPROXY_CONF
                    fi
                done
-               systemctl restart haproxy ;;
+               systemctl restart haproxy && echo -e "${GREEN}✔ Done.${NC}" ;;
             3) read -p "Port: " R_PORT; sed -i "/listen forward-$R_PORT/,+3d" $HAPROXY_CONF; systemctl restart haproxy ;;
-            5) break ;;
+            4) break ;;
         esac
     done
 }
@@ -102,7 +103,7 @@ setup_port_forward() {
     case $tool in
         1) manage_gost ;;
         2) manage_haproxy ;;
-        3) systemctl stop gost-* 2>/dev/null; rm -f /etc/systemd/system/gost-*.service; echo "" > $HAPROXY_CONF; systemctl restart haproxy; systemctl daemon-reload ;;
+        3) systemctl stop gost-* 2>/dev/null; rm -f /etc/systemd/system/gost-*.service; echo "" > $HAPROXY_CONF; systemctl restart haproxy; systemctl daemon-reload; echo -e "${RED}✔ All Cleared.${NC}" ;;
     esac
 }
 
@@ -111,6 +112,7 @@ setup_port_forward() {
 setup_telegram() {
     read -p "Token: " BTN; read -p "Chat ID: " CID
     echo "TOKEN=$BTN" > $TELEGRAM_CONF; echo "CHATID=$CID" >> $TELEGRAM_CONF
+    echo -e "${GREEN}✔ Linked.${NC}"
 }
 
 setup_auto_healer() {
@@ -120,10 +122,11 @@ TARGET="10.0.0.1"; [ -f /etc/wireguard/wg0.conf ] && grep -q "10.0.0.1" /etc/wir
 PING_RESULT=$(ping -c 4 $TARGET | tail -1 | awk '{print $4}' | cut -d '/' -f 2 | cut -d '.' -f 1)
 if [ -z "$PING_RESULT" ] || [ "$PING_RESULT" -gt 300 ]; then
     systemctl restart tunnel; wg-quick down wg0; wg-quick up wg0
-    [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf && curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Healed" > /dev/null
+    [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf && curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Healed" > /dev/null
 fi
 EOF
     chmod +x $HEALER_SCRIPT; (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
+    echo -e "${GREEN}✔ Healer active.${NC}"
 }
 
 setup_daily_report() {
@@ -137,9 +140,10 @@ MSG="📊 Daily Report: $TOTAL_GB GB"
 curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=$MSG" > /dev/null
 EOF
     chmod +x $REPORT_SCRIPT; (crontab -l 2>/dev/null | grep -v "tunnel_report.sh"; echo "59 23 * * * $REPORT_SCRIPT") | crontab -
+    echo -e "${GREEN}✔ Daily Report enabled.${NC}"
 }
 
-# --- 4. Status ---
+# --- 4. Status (The Logo you liked) ---
 
 show_status() {
     clear
@@ -150,12 +154,18 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.00 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel: ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard: ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
-    echo -e "Traffic:"
+    GOST_COUNT=$(ls /etc/systemd/system/gost-*.service 2>/dev/null | wc -l)
+    HAP_COUNT=$(grep -c "listen forward-" $HAPROXY_CONF 2>/dev/null || echo 0)
+    echo -e "Forwards: GOST($GOST_COUNT), HAProxy($HAP_COUNT)"
+    [ -f $TELEGRAM_CONF ] && echo -e "Telegram: ${GREEN}LINKED${NC}" || echo -e "Telegram: ${RED}NOT SET${NC}"
+    echo -e "${CYAN}--------------------------------------------------------${NC}"
+    echo -e "${WHITE}TRAFFIC (wg0):${NC}"
     wg show wg0 transfer 2>/dev/null || echo "No data."
+    echo -e "${CYAN}========================================================${NC}"
     read -p "Press Enter..."
 }
 
@@ -170,7 +180,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"
@@ -180,7 +190,7 @@ echo "5) Daily Traffic Report"
 echo "6) Show Full System Status"
 echo "7) Full Uninstall"
 echo "8) Exit"
-read opt
+read -p "Select: " opt
 
 case $opt in
     1) optimize_system; apt update && apt install -y wireguard iptables curl tar bc > /dev/null 2>&1
@@ -212,13 +222,23 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 EOF
-       systemctl daemon-reload && systemctl enable --now tunnel ;;
+       systemctl daemon-reload && systemctl enable --now tunnel; echo -e "${GREEN}✔ Done.${NC}" ;;
     2) setup_port_forward ;;
     3) setup_telegram ;;
     4) setup_auto_healer ;;
     5) setup_daily_report ;;
     6) show_status ;;
-    7) systemctl stop tunnel gost-* haproxy 2>/dev/null; systemctl disable tunnel gost-* 2>/dev/null; wg-quick down wg0 2>/dev/null; rm -rf /etc/wireguard /opt/udp2raw /etc/systemd/system/tunnel.service /etc/systemd/system/gost-*.service; echo "Cleaned." ;;
+    7) 
+       echo -e "\n${YELLOW}[!] Starting Uninstall...${NC}"
+       systemctl stop tunnel gost-* haproxy 2>/dev/null && echo -e "${GREEN}✔ Services stopped.${NC}"
+       systemctl disable tunnel gost-* 2>/dev/null && echo -e "${GREEN}✔ Autostart disabled.${NC}"
+       wg-quick down wg0 2>/dev/null && echo -e "${GREEN}✔ Network interface closed.${NC}"
+       rm -rf /etc/wireguard /opt/udp2raw /etc/systemd/system/tunnel.service /etc/systemd/system/gost-*.service
+       rm -f /etc/sysctl.d/99-tunnel.conf $REPORT_SCRIPT $HEALER_SCRIPT
+       crontab -l 2>/dev/null | grep -vE "tunnel_healer.sh|tunnel_report.sh" | crontab -
+       systemctl daemon-reload
+       echo -e "${RED}✔ FULL UNINSTALL COMPLETED.${NC}"
+       read -p "Press Enter..." ;;
     8) exit 0 ;;
 esac
 done

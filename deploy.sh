@@ -181,26 +181,33 @@ EOF
 }
 
 # --- بخش ۵: اصلاح شده ---
-setup_daily_report() {
-    apt install bc -y >/dev/null 2>&1
-    cat <<'EOF' > $REPORT_SCRIPT
-#!/bin/bash
-[ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf || exit 1
-# محاسبه ترافیک به گیگابایت
-RX_BYTES=$(wg show wg0 transfer | awk '{print $2}' | sed 's/[^0-9.]//g')
-TX_BYTES=$(wg show wg0 transfer | awk '{print $3}' | sed 's/[^0-9.]//g')
-TOTAL_GB=$(echo "scale=2; ($RX_BYTES+$TX_BYTES)/1024/1024/1024" | bc)
+send_daily_report() {
+    # 1. خواندن تنظیمات جدید
+    if [ -f /etc/tunnel_telegram.conf ]; then
+        source /etc/tunnel_telegram.conf
+    else
+        echo "❌ تنظیمات تلگرام یافت نشد. ابتدا گزینه ۳ را بزنید."
+        return
+    fi
 
-if [ -n "$TOKEN" ]; then
-    curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Traffic Report%0AHost: $(hostname)%0AUsage: $TOTAL_GB GB" > /dev/null
-fi
-EOF
-    chmod +x $REPORT_SCRIPT
-    # تنظیم برای ساعت ۲۳:۵۹ هر شب
-    (crontab -l 2>/dev/null | grep -v "tunnel_report.sh"; echo "59 23 * * * $REPORT_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Daily Traffic Report (v7.9) enabled.${NC}"
+    # 2. استخراج ترافیک و تعداد ریست‌ها
+    TRAFFIC=$(wg show wg0 transfer 2>/dev/null)
+    RC_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+    DOWN=$(echo "$TRAFFIC" | awk '{print $2 " " $3}')
+    UP=$(echo "$TRAFFIC" | awk '{print $5 " " $6}')
+
+    # 3. ارسال پیام (با همان متغیرهای TOKEN و CHATID فایل جدید)
+    RESULT=$(curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+        -d "chat_id=$CHATID" \
+        -d "text=📊 *گزارش وضعیت تانل*%0A📅 تاریخ: $(date +%Y-%m-%d)%0A🔄 دفعات بازیابی: $RC_COUNT%0A📥 دانلود: ${DOWN:-0 B}%0A📤 آپلود: ${UP:-0 B}" \
+        -d "parse_mode=Markdown")
+
+    if [[ $RESULT == *"ok\":true"* ]]; then
+        echo "✅ گزارش با موفقیت ارسال شد."
+    else
+        echo "❌ خطا در ارسال گزارش. تنظیمات را چک کنید."
+    fi
 }
-
 # --- 4. Status ---
 
 show_status() {
@@ -212,7 +219,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -238,7 +245,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

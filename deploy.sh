@@ -124,11 +124,14 @@ setup_telegram() {
 }
 
 # --- بخش ۴: نسخه نهایی و ضد خطا ---
-# --- بخش ۴: نسخه نهایی با گزارش روزانه و بدون فایل لاگ ---
+# --- بخش ۴: نسخه نهایی با گزارش روزانه و ترافیک جمع‌شونده ---
 setup_auto_healer() {
-    # ایجاد فایل ذخیره تعداد ریست‌ها
+    # ایجاد فایل‌های ذخیره آمار (اگر وجود ندارند)
+    touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
     echo "0" > /etc/tunnel_reset_count
-    chmod 666 /etc/tunnel_reset_count
+    echo "0" > /etc/total_down
+    echo "0" > /etc/total_up
+    chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
 
     cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
@@ -150,6 +153,13 @@ check_connection() {
 
 # عملیات احیا
 if ! check_connection; then
+    # ذخیره ترافیک فعلی قبل از ریست شدن (اضافه به قلک)
+    STATS=$(wg show wg0 transfer 2>/dev/null)
+    D_BYTES=$(echo $STATS | awk '{print $2}')
+    U_BYTES=$(echo $STATS | awk '{print $5}')
+    [[ "$D_BYTES" =~ ^[0-9]+$ ]] && echo $(( $(cat /etc/total_down 2>/dev/null || echo 0) + D_BYTES )) > /etc/total_down
+    [[ "$U_BYTES" =~ ^[0-9]+$ ]] && echo $(( $(cat /etc/total_up 2>/dev/null || echo 0) + U_BYTES )) > /etc/total_up
+
     systemctl stop tunnel > /dev/null 2>&1
     wg-quick down wg0 > /dev/null 2>&1
     ip link delete wg0 > /dev/null 2>&1
@@ -158,26 +168,46 @@ if ! check_connection; then
     wg-quick up wg0 > /dev/null 2>&1
     
     # افزایش آمار ریست‌های روزانه
-    COUNT=$(cat /etc/tunnel_reset_count)
+    COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     echo $((COUNT + 1)) > /etc/tunnel_reset_count
 
     if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Done!*%0A🌐 Host: $(hostname)%0A🔄 Status: Tunnel Recovered successfully." -d "parse_mode=Markdown" > /dev/null
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Done!*%0A🌐 Host: $(hostname)%0A🔄 Status: Tunnel Recovered." -d "parse_mode=Markdown" > /dev/null
     fi
 fi
 
 # ارسال گزارش روزانه در ساعت ۰۰:۰۰
 if [ "$(date +%H:%M)" == "00:00" ]; then
-    FINAL_COUNT=$(cat /etc/tunnel_reset_count)
+    FINAL_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+    
+    # جمع ترافیک لحظه‌ای با ترافیک‌های ذخیره شده
+    CUR_STATS=$(wg show wg0 transfer 2>/dev/null)
+    CUR_D=$(echo $CUR_STATS | awk '{print $2}')
+    CUR_U=$(echo $CUR_STATS | awk '{print $5}')
+    
+    TOTAL_D_B=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CUR_D:-0} ))
+    TOTAL_U_B=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CUR_U:-0} ))
+    
+    # تبدیل به مگابایت برای گزارش (MB)
+    D_MB=$(( TOTAL_D_B / 1048576 ))
+    U_MB=$(( TOTAL_U_B / 1048576 ))
+
     if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 *Daily Tunnel Report*%0A📅 Date: $(date +%Y-%m-%d)%0A🔄 Total Auto-Heals today: $FINAL_COUNT" -d "parse_mode=Markdown" > /dev/null
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+            -d "chat_id=$CHATID" \
+            -d "text=📊 *Daily Tunnel Report*%0A📅 Date: $(date +%Y-%m-%d)%0A🔄 Total Resets: $FINAL_COUNT%0A📥 Total Down: $D_MB MB%0A📤 Total Up: $U_MB MB" \
+            -d "parse_mode=Markdown" > /dev/null
     fi
+    
+    # صفر کردن آمار برای شروع روز جدید
     echo "0" > /etc/tunnel_reset_count
+    echo "0" > /etc/total_down
+    echo "0" > /etc/total_up
 fi
 EOF
     chmod +x $HEALER_SCRIPT
     (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Ultimate Smart Healer with Daily Report installed.${NC}"
+    echo -e "${GREEN}✔ Ultimate Smart Healer with Traffic Reporting installed.${NC}"
 }
 
 # --- بخش ۵: اصلاح شده ---
@@ -219,7 +249,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -245,7 +275,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

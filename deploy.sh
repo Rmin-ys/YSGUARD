@@ -123,31 +123,49 @@ setup_telegram() {
     read -p "Press Enter..."
 }
 
+# --- بخش ۴: اصلاح شده ---
 setup_auto_healer() {
     cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
-TARGET="10.0.0.1"; [ -f /etc/wireguard/wg0.conf ] && grep -q "10.0.0.1" /etc/wireguard/wg0.conf && TARGET="10.0.0.2"
+# لود کردن تنظیمات تلگرام
+[ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
+# تشخیص آی‌پی مقابل برای پینگ
+TARGET="10.0.0.1"
+if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
+
 PING_RESULT=$(ping -c 4 $TARGET | tail -1 | awk '{print $4}' | cut -d '/' -f 2 | cut -d '.' -f 1)
+
 if [ -z "$PING_RESULT" ] || [ "$PING_RESULT" -gt 300 ]; then
     systemctl restart tunnel; wg-quick down wg0; wg-quick up wg0
-    [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf && curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Healed on $(hostname)" > /dev/null
+    if [ -n "$TOKEN" ]; then
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Reset on $(hostname) (Ping: $PING_RESULT ms)" > /dev/null
+    fi
 fi
 EOF
-    chmod +x $HEALER_SCRIPT; (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Healer active.${NC}"
+    chmod +x $HEALER_SCRIPT
+    (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
+    echo -e "${GREEN}✔ Anti-Lag Auto-Healer (v7.9) active.${NC}"
 }
 
+# --- بخش ۵: اصلاح شده ---
 setup_daily_report() {
     apt install bc -y >/dev/null 2>&1
     cat <<'EOF' > $REPORT_SCRIPT
 #!/bin/bash
-if [ -f /etc/tunnel_telegram.conf ]; then source /etc/tunnel_telegram.conf; else exit 1; fi
-RX_BYTES=$(wg show wg0 transfer | awk '{print $2}' | sed 's/[^0-9.]//g'); TX_BYTES=$(wg show wg0 transfer | awk '{print $3}' | sed 's/[^0-9.]//g')
+[ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf || exit 1
+# محاسبه ترافیک به گیگابایت
+RX_BYTES=$(wg show wg0 transfer | awk '{print $2}' | sed 's/[^0-9.]//g')
+TX_BYTES=$(wg show wg0 transfer | awk '{print $3}' | sed 's/[^0-9.]//g')
 TOTAL_GB=$(echo "scale=2; ($RX_BYTES+$TX_BYTES)/1024/1024/1024" | bc)
-curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Report ($(hostname)): $TOTAL_GB GB" > /dev/null
+
+if [ -n "$TOKEN" ]; then
+    curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Traffic Report%0AHost: $(hostname)%0AUsage: $TOTAL_GB GB" > /dev/null
+fi
 EOF
-    chmod +x $REPORT_SCRIPT; (crontab -l 2>/dev/null | grep -v "tunnel_report.sh"; echo "59 23 * * * $REPORT_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Daily Report enabled.${NC}"
+    chmod +x $REPORT_SCRIPT
+    # تنظیم برای ساعت ۲۳:۵۹ هر شب
+    (crontab -l 2>/dev/null | grep -v "tunnel_report.sh"; echo "59 23 * * * $REPORT_SCRIPT") | crontab -
+    echo -e "${GREEN}✔ Daily Traffic Report (v7.9) enabled.${NC}"
 }
 
 # --- 4. Status ---

@@ -163,16 +163,9 @@ EOF
 
 show_status() {
     clear
-    echo -e "${CYAN}========================================================"
-    echo -e "${CYAN}██╗   ██╗███████╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ "
-    echo -e "╚██╗ ██╔╝██╔════╝██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗"
-    echo -e " ╚████╔╝ ███████╗██║  ███╗██║   ██║███████║██████╔╝██║  ██║"
-    echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
-    echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
-    echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.00 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
-    
+    echo -e "                ${WHITE}DETAILED SYSTEM STATUS${NC}"
+    echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (UDP2RAW): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard:  ${RED}INACTIVE${NC}"
     GOST_COUNT=$(ls /etc/systemd/system/gost-*.service 2>/dev/null | wc -l)
@@ -194,8 +187,14 @@ show_status() {
 while true; do
 clear
 echo -e "${CYAN}========================================================"
-echo -e "           MASTER TUNNEL PRO - VERSION 6.9"
-echo -e "========================================================${NC}"
+echo -e "${CYAN}██╗   ██╗███████╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ "
+echo -e "╚██╗ ██╔╝██╔════╝██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗"
+echo -e " ╚████╔╝ ███████╗██║  ███╗██║   ██║███████║██████╔╝██║  ██║"
+echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
+echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
+echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
+echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.00 ]${NC}"
+echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"
 echo "3) Telegram Bot Settings"

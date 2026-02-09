@@ -143,7 +143,7 @@ EOF
     echo -e "${GREEN}✔ Daily Report enabled.${NC}"
 }
 
-# --- 4. Status (The Logo you liked) ---
+# --- 4. Status ---
 
 show_status() {
     clear
@@ -154,7 +154,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.00 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel: ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard: ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -174,14 +174,8 @@ show_status() {
 while true; do
 clear
 echo -e "${CYAN}========================================================"
-    echo -e "${CYAN}██╗   ██╗███████╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ "
-    echo -e "╚██╗ ██╔╝██╔════╝██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗"
-    echo -e " ╚████╔╝ ███████╗██║  ███╗██║   ██║███████║██████╔╝██║  ██║"
-    echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
-    echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
-    echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
-    echo -e "${CYAN}========================================================${NC}"
+echo -e "           MASTER TUNNEL PRO - VERSION 7.2"
+echo -e "========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"
 echo "3) Telegram Bot Settings"
@@ -196,9 +190,16 @@ case $opt in
     1) optimize_system; apt update && apt install -y wireguard iptables curl tar bc > /dev/null 2>&1
        mkdir -p /etc/wireguard; [ ! -f /etc/wireguard/private.key ] && wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
        MY_PUB=$(cat /etc/wireguard/public.key); MY_PRIV=$(cat /etc/wireguard/private.key)
+       
        read -p "Port [443]: " T_PORT; T_PORT=${T_PORT:-443}
        echo -e "1) Foreign\n2) Iran"; read -p "Role: " role
        [ ! -d /opt/udp2raw ] && mkdir -p /opt/udp2raw && curl -L https://github.com/wangyu-/udp2raw/releases/download/20230206.0/udp2raw_binaries.tar.gz -o /tmp/u.tar.gz && tar -xzvf /tmp/u.tar.gz -C /tmp/ && mv /tmp/udp2raw_amd64 /opt/udp2raw/udp2raw && chmod +x /opt/udp2raw/udp2raw
+       
+       # نمایش دوباره پابلیک کی درست قبل از نیاز به آن
+       echo -e "\n${YELLOW}-----------------------------------------${NC}"
+       echo -e "${GREEN}YOUR PUBLIC KEY:${NC} ${WHITE}$MY_PUB${NC}"
+       echo -e "${YELLOW}-----------------------------------------${NC}\n"
+
        if [ "$role" == "1" ]; then read -p "Iran PubKey: " PEER_PUB
          echo -e "[Interface]\nPrivateKey = $MY_PRIV\nAddress = 10.0.0.1/24\nListenPort = 51820\nMTU = 1280\n[Peer]\nPublicKey = $PEER_PUB\nAllowedIPs = 10.0.0.2/32" > /etc/wireguard/wg0.conf
          EXEC="/opt/udp2raw/udp2raw -s -l0.0.0.0:$T_PORT -r 127.0.0.1:51820 -k '505752' --raw-mode faketcp --cipher-mode xor --auth-mode md5 --seq-mode 3"

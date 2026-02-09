@@ -124,44 +124,40 @@ setup_telegram() {
 }
 
 # --- بخش ۴: نسخه نهایی و ضد خطا ---
+# --- بخش ۴: نسخه نهایی با آدرس‌های مستقیم ---
 setup_auto_healer() {
     cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
 TARGET="10.0.0.1"
-if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
+if /usr/bin/grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
 
-PING_RESULT=$(ping -c 4 -W 2 $TARGET | tail -1 | awk '{print $4}' | cut -d '/' -f 2 | cut -d '.' -f 1)
+# چک کردن پینگ
+PING_RESULT=$(/usr/bin/ping -c 4 -W 2 $TARGET | /usr/bin/tail -1 | /usr/bin/awk '{print $4}' | /usr/bin/cut -d '/' -f 2 | /usr/bin/cut -d '.' -f 1)
 
 if [ -z "$PING_RESULT" ] || [ "$PING_RESULT" -gt 350 ]; then
-    # ۱. توقف سرویس‌ها
-    systemctl stop tunnel
-    wg-quick down wg0 2>/dev/null
+    # ۱. توقف کامل
+    /usr/bin/systemctl stop tunnel
+    /usr/bin/wg-quick down wg0 2>/dev/null
     
-    # ۲. پاکسازی اجباری اینترفیس (اگر قفل شده باشه)
-    ip link delete wg0 2>/dev/null
+    # ۲. حذف اجباری لایه شبکه (برای اطمینان)
+    /usr/sbin/ip link delete wg0 2>/dev/null
     
-    # ۳. استارت مجدد موتور تانل
-    systemctl start tunnel
-    sleep 3  # وقت کافی برای بالا اومدن udp2raw
+    # ۳. استارت موتور تانل
+    /usr/bin/systemctl start tunnel
+    /usr/bin/sleep 4
     
-    # ۴. استارت مجدد وایرگارد
-    wg-quick up wg0
+    # ۴. استارت وایرگارد با آدرس کامل
+    /usr/bin/wg-quick up wg0
     
-    # ۵. چک نهایی: اگه باز هم بالا نیومد، یکبار دیگه تلاش کن
-    if ! ip addr show wg0 >/dev/null 2>&1; then
-        sleep 2
-        wg-quick up wg0
-    fi
-
     if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Auto-Healed on $(hostname)%0A🔄 Status: Interface Reconstructed!" > /dev/null
+        /usr/bin/curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Reconstructed on $(hostname)%0A✅ Interface is UP!" > /dev/null
     fi
 fi
 EOF
     chmod +x $HEALER_SCRIPT
     (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Anti-Lag Auto-Healer (Ultra-Fix) active.${NC}"
+    echo -e "${GREEN}✔ Anti-Lag Auto-Healer (Final Path-Fix) active.${NC}"
 }
 
 # --- بخش ۵: اصلاح شده ---

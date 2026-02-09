@@ -123,28 +123,40 @@ setup_telegram() {
     read -p "Press Enter..."
 }
 
-# --- بخش ۴: اصلاح شده ---
 setup_auto_healer() {
     cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
 # لود کردن تنظیمات تلگرام
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
+
 # تشخیص آی‌پی مقابل برای پینگ
 TARGET="10.0.0.1"
 if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
 
-PING_RESULT=$(ping -c 4 $TARGET | tail -1 | awk '{print $4}' | cut -d '/' -f 2 | cut -d '.' -f 1)
+# تست پینگ با مهلت زمانی ۲ ثانیه
+PING_RESULT=$(ping -c 4 -W 2 $TARGET | tail -1 | awk '{print $4}' | cut -d '/' -f 2 | cut -d '.' -f 1)
 
-if [ -z "$PING_RESULT" ] || [ "$PING_RESULT" -gt 300 ]; then
-    systemctl restart tunnel; wg-quick down wg0; wg-quick up wg0
+if [ -z "$PING_RESULT" ] || [ "$PING_RESULT" -gt 350 ]; then
+    # گام اول: توقف کامل برای جلوگیری از تداخل
+    systemctl stop tunnel
+    wg-quick down wg0 2>/dev/null
+    sleep 1
+    
+    # گام دوم: استارت مجدد با وقفه
+    systemctl start tunnel
+    sleep 2
+    wg-quick up wg0
+    
+    # گام سوم: اطلاع‌رسانی
     if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Reset on $(hostname) (Ping: $PING_RESULT ms)" > /dev/null
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Tunnel Auto-Healed on $(hostname)%0A🔄 Status: Connection Restored!" > /dev/null
     fi
 fi
 EOF
     chmod +x $HEALER_SCRIPT
+    # حذف تنظیمات قبلی از کرون‌جاب و ثبت مجدد برای جلوگیری از تکرار
     (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Anti-Lag Auto-Healer (v7.9) active.${NC}"
+    echo -e "${GREEN}✔ Anti-Lag Auto-Healer (v7.9-Fixed) installed successfully.${NC}"
 }
 
 # --- بخش ۵: اصلاح شده ---

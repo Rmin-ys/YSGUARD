@@ -123,7 +123,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.04 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.05 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel: ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard: ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -144,7 +144,7 @@ clear
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.04 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.05 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"
@@ -161,9 +161,19 @@ case $opt in
        mkdir -p /etc/wireguard; [ ! -f /etc/wireguard/private.key ] && wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
        MY_PUB=$(cat /etc/wireguard/public.key); MY_PRIV=$(cat /etc/wireguard/private.key)
        
-       read -p "Tunnel Port [443]: " T_PORT; T_PORT=${T_PORT:-443}
-       read -p "Tunnel Password [Default: 505752]: " T_PASS; T_PASS=${T_PASS:-505752}
-       read -p "WireGuard MTU [Default: 1280]: " T_MTU; T_MTU=${T_MTU:-1280}
+       read -p "Tunnel Port [Default 443]: " T_PORT; T_PORT=${T_PORT:-443}
+       
+       # بخش دریافت رمز بدون مقدار پیش‌فرض لو رفته
+       while true; do
+           read -p "Enter Tunnel Password: " T_PASS
+           if [ -z "$T_PASS" ]; then
+               echo -e "${RED}Error: Password cannot be empty!${NC}"
+           else
+               break
+           fi
+       done
+
+       read -p "WireGuard MTU [Default 1280]: " T_MTU; T_MTU=${T_MTU:-1280}
        
        echo -e "1) Foreign\n2) Iran"; read -p "Role: " role
        

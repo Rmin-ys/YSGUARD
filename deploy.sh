@@ -124,59 +124,62 @@ setup_telegram() {
 }
 
 # --- بخش ۴: نسخه نهایی و ضد خطا ---
-# --- بخش ۴: نسخه هوشمند با تشخیص اینترفیس ---
+# --- بخش ۴: نسخه نهایی با گزارش روزانه و بدون فایل لاگ ---
 setup_auto_healer() {
+    # ایجاد فایل ذخیره تعداد ریست‌ها
+    echo "0" > /etc/tunnel_reset_count
+    chmod 666 /etc/tunnel_reset_count
+
     cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-DEBUG_LOG="/tmp/healer_debug.log"
-
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
 
-# تشخیص آی‌پی مقابل (اگر ایران هستی هدف خارج، اگر خارج هستی هدف ایران)
 TARGET="10.0.0.1"
 if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
 
+# تابع بررسی هوشمند
 check_connection() {
-    # شرط اول: اگر اینترفیس wg0 اصلا وجود نداشته باشد
-    if ! ip link show wg0 > /dev/null 2>&1; then
-        echo "Reason: Interface wg0 is missing." >> $DEBUG_LOG
-        return 1 
-    fi
-    
-    # شرط دوم: تست پینگ واقعی (۳ بار تلاش)
+    if ! ip link show wg0 > /dev/null 2>&1; then return 1; fi
     for i in {1..3}; do
-        if ping -c 1 -W 3 $TARGET > /dev/null 2>&1; then
-            return 0 
-        fi
+        if ping -c 1 -W 3 $TARGET > /dev/null 2>&1; then return 0; fi
         sleep 2
     done
-    echo "Reason: Ping to $TARGET failed 3 times." >> $DEBUG_LOG
     return 1
 }
 
+# عملیات احیا
 if ! check_connection; then
-    echo "--- Healing Started at $(date) ---" >> $DEBUG_LOG
-    
-    systemctl stop tunnel >> $DEBUG_LOG 2>&1
-    wg-quick down wg0 >> $DEBUG_LOG 2>&1
-    ip link delete wg0 >> $DEBUG_LOG 2>&1
-    
-    systemctl start tunnel >> $DEBUG_LOG 2>&1
+    systemctl stop tunnel > /dev/null 2>&1
+    wg-quick down wg0 > /dev/null 2>&1
+    ip link delete wg0 > /dev/null 2>&1
+    systemctl start tunnel > /dev/null 2>&1
     sleep 5
-    wg-quick up wg0 >> $DEBUG_LOG 2>&1
+    wg-quick up wg0 > /dev/null 2>&1
     
+    # افزایش آمار ریست‌های روزانه
+    COUNT=$(cat /etc/tunnel_reset_count)
+    echo $((COUNT + 1)) > /etc/tunnel_reset_count
+
     if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Smart Healer Action on $(hostname)%0A🔄 Status: Interface restored and Ping checked!" > /dev/null
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Done!*%0A🌐 Host: $(hostname)%0A🔄 Status: Tunnel Recovered successfully." -d "parse_mode=Markdown" > /dev/null
     fi
-else
-    echo "--- Connection OK at $(date) ---" > $DEBUG_LOG
+fi
+
+# ارسال گزارش روزانه در ساعت ۰۰:۰۰
+if [ "$(date +%H:%M)" == "00:00" ]; then
+    FINAL_COUNT=$(cat /etc/tunnel_reset_count)
+    if [ -n "$TOKEN" ]; then
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 *Daily Tunnel Report*%0A📅 Date: $(date +%Y-%m-%d)%0A🔄 Total Auto-Heals today: $FINAL_COUNT" -d "parse_mode=Markdown" > /dev/null
+    fi
+    echo "0" > /etc/tunnel_reset_count
 fi
 EOF
     chmod +x $HEALER_SCRIPT
     (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Ultimate Healer (Interface-Aware) installed.${NC}"
+    echo -e "${GREEN}✔ Ultimate Smart Healer with Daily Report installed.${NC}"
 }
+
 # --- بخش ۵: اصلاح شده ---
 setup_daily_report() {
     apt install bc -y >/dev/null 2>&1
@@ -209,7 +212,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.05 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -235,7 +238,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.05 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

@@ -38,7 +38,7 @@ apply_qos() {
     tc qdisc add dev $IFACE root fq_codel
 }
 
-# --- 2. Port Forwarder ---
+# --- 2. Port Forwarders (GOST & HAProxy) ---
 
 manage_gost() {
     while true; do
@@ -51,7 +51,7 @@ manage_gost() {
         case $g_opt in
             1) curl -L https://github.com/ginuerzh/gost/releases/download/v2.11.1/gost-linux-amd64-2.11.1.gz | gunzip > $GOST_BIN && chmod +x $GOST_BIN && echo -e "${GREEN}✔ GOST installed.${NC}" ;;
             2) [ ! -f $GOST_BIN ] && echo -e "${RED}✘ Install GOST first!${NC}" && continue
-               read -p "Enter Port(s): " PORTS; IFS=',' read -ra ADDR <<< "$PORTS"
+               read -p "Enter Port(s) (e.g. 80,443): " PORTS; IFS=',' read -ra ADDR <<< "$PORTS"
                for port in "${ADDR[@]}"; do
                    cat <<EOF > /etc/systemd/system/gost-$port.service
 [Unit]
@@ -64,22 +64,61 @@ Restart=always
 WantedBy=multi-user.target
 EOF
                    systemctl daemon-reload && systemctl enable --now gost-$port
-               done; echo -e "${GREEN}✔ Ports forwarded.${NC}" ;;
-            3) read -p "Port: " R_PORT; systemctl stop gost-$R_PORT 2>/dev/null; systemctl disable gost-$R_PORT 2>/dev/null; rm -f /etc/systemd/system/gost-$R_PORT.service; systemctl daemon-reload; echo -e "${GREEN}✔ Removed.${NC}" ;;
+               done; echo -e "${GREEN}✔ Ports forwarded via GOST.${NC}" ;;
+            3) read -p "Port: " R_PORT; systemctl stop gost-$R_PORT 2>/dev/null; systemctl disable gost-$R_PORT 2>/dev/null; rm -f /etc/systemd/system/gost-$R_PORT.service; systemctl daemon-reload; echo -e "${GREEN}✔ Port $R_PORT removed.${NC}" ;;
             4) break ;;
         esac
     done
 }
 
-# --- 3. Telegram, Healer & Daily Report ---
+manage_haproxy() {
+    while true; do
+        echo -e "\n${CYAN}>>> HAProxy Port Forwarder <<<${NC}"
+        echo "1) Install HAProxy"
+        echo "2) Add New Port(s)"
+        echo "3) Remove Specific Port"
+        echo "4) Back"
+        read -p "Select [1-4]: " h_opt
+        case $h_opt in
+            1) apt update && apt install haproxy -y && systemctl enable haproxy; echo -e "${GREEN}✔ HAProxy installed.${NC}" ;;
+            2) read -p "Enter Port(s): " PORTS; IFS=',' read -ra ADDR <<< "$PORTS"
+               for port in "${ADDR[@]}"; do
+                   if ! grep -q "listen forward-$port" $HAPROXY_CONF; then
+                       echo -e "listen forward-$port\n    bind :$port\n    mode tcp\n    server srv1 10.0.0.1:$port" >> $HAPROXY_CONF
+                   fi
+               done
+               systemctl restart haproxy && echo -e "${GREEN}✔ Ports added to HAProxy.${NC}" ;;
+            3) read -p "Port to remove: " R_PORT; sed -i "/listen forward-$R_PORT/,+3d" $HAPROXY_CONF; systemctl restart haproxy; echo -e "${GREEN}✔ Port removed.${NC}" ;;
+            4) break ;;
+        esac
+    done
+}
+
+setup_port_forward() {
+    echo -e "\n${CYAN}--- Port Forwarding Menu ---${NC}"
+    echo "1) GOST (TCP/UDP Support)"
+    echo "2) HAProxy (TCP Only)"
+    echo "3) Global Forwarding Reset (Clean All)"
+    echo "4) Back"
+    read -p "Select: " tool
+    case $tool in
+        1) manage_gost ;;
+        2) manage_haproxy ;;
+        3) systemctl stop gost-* 2>/dev/null; rm -f /etc/systemd/system/gost-*.service; 
+           [ -f $HAPROXY_CONF ] && echo "" > $HAPROXY_CONF && systemctl restart haproxy; 
+           systemctl daemon-reload; echo -e "${RED}✔ All forwards cleared.${NC}" ;;
+        4) return ;;
+    esac
+}
+
+# --- 3. Telegram & Healer ---
 
 setup_telegram() {
     echo -e "\n${CYAN}--- Telegram Bot Configuration ---${NC}"
     read -p "Enter Bot Token: " BTN; BTN=$(echo $BTN | sed 's/\$//g')
     read -p "Enter Chat ID: " CID; CID=$(echo $CID | sed 's/\$//g')
     echo "TOKEN=$BTN" > $TELEGRAM_CONF; echo "CHATID=$CID" >> $TELEGRAM_CONF
-    echo -e "${YELLOW}[*] Sending test message...${NC}"
-    curl -s -X POST "https://api.telegram.org/bot$BTN/sendMessage" -d "chat_id=$CID" -d "text=✅ MASTER TUNNEL PRO Connected!%0AHost: $(hostname)" > /dev/null
+    curl -s -X POST "https://api.telegram.org/bot$BTN/sendMessage" -d "chat_id=$CID" -d "text=✅ MASTER TUNNEL PRO Connected!" > /dev/null
     echo -e "${GREEN}✔ Linked & Test message sent.${NC}"
     read -p "Press Enter..."
 }
@@ -105,8 +144,7 @@ setup_daily_report() {
 if [ -f /etc/tunnel_telegram.conf ]; then source /etc/tunnel_telegram.conf; else exit 1; fi
 RX_BYTES=$(wg show wg0 transfer | awk '{print $2}' | sed 's/[^0-9.]//g'); TX_BYTES=$(wg show wg0 transfer | awk '{print $3}' | sed 's/[^0-9.]//g')
 TOTAL_GB=$(echo "scale=2; ($RX_BYTES+$TX_BYTES)/1024/1024/1024" | bc)
-MSG="📊 Daily Report ($(hostname)): $TOTAL_GB GB"
-curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=$MSG" > /dev/null
+curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Report ($(hostname)): $TOTAL_GB GB" > /dev/null
 EOF
     chmod +x $REPORT_SCRIPT; (crontab -l 2>/dev/null | grep -v "tunnel_report.sh"; echo "59 23 * * * $REPORT_SCRIPT") | crontab -
     echo -e "${GREEN}✔ Daily Report enabled.${NC}"
@@ -123,12 +161,17 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.05 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.06 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
-    systemctl is-active --quiet tunnel && echo -e "Tunnel: ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
-    wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard: ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
-    echo -e "Traffic:"
-    wg show wg0 transfer 2>/dev/null || echo "No data."
+    systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
+    wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
+    
+    G_COUNT=$(ls /etc/systemd/system/gost-*.service 2>/dev/null | wc -l)
+    H_COUNT=$(grep -c "listen forward-" $HAPROXY_CONF 2>/dev/null || echo 0)
+    echo -e "Active Forwards:  ${YELLOW}GOST ($G_COUNT), HAProxy ($H_COUNT)${NC}"
+    
+    echo -e "\nTraffic Data:"
+    wg show wg0 transfer 2>/dev/null || echo "No data available."
     echo -e "${CYAN}========================================================${NC}"
     read -p "Press Enter..."
 }
@@ -137,14 +180,14 @@ show_status() {
 
 while true; do
 clear
-    echo -e "${CYAN}========================================================"
+echo -e "${CYAN}========================================================"
     echo -e "${CYAN}██╗   ██╗███████╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ "
     echo -e "╚██╗ ██╔╝██╔════╝██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗"
     echo -e " ╚████╔╝ ███████╗██║  ███╗██║   ██║███████║██████╔╝██║  ██║"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.05 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.06 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"
@@ -162,26 +205,16 @@ case $opt in
        MY_PUB=$(cat /etc/wireguard/public.key); MY_PRIV=$(cat /etc/wireguard/private.key)
        
        read -p "Tunnel Port [Default 443]: " T_PORT; T_PORT=${T_PORT:-443}
-       
-       # بخش دریافت رمز بدون مقدار پیش‌فرض لو رفته
        while true; do
            read -p "Enter Tunnel Password: " T_PASS
-           if [ -z "$T_PASS" ]; then
-               echo -e "${RED}Error: Password cannot be empty!${NC}"
-           else
-               break
-           fi
+           [ -n "$T_PASS" ] && break || echo -e "${RED}Error: Cannot be empty!${NC}"
        done
-
        read -p "WireGuard MTU [Default 1280]: " T_MTU; T_MTU=${T_MTU:-1280}
-       
        echo -e "1) Foreign\n2) Iran"; read -p "Role: " role
        
        [ ! -d /opt/udp2raw ] && mkdir -p /opt/udp2raw && curl -L https://github.com/wangyu-/udp2raw/releases/download/20230206.0/udp2raw_binaries.tar.gz -o /tmp/u.tar.gz && tar -xzvf /tmp/u.tar.gz -C /tmp/ && mv /tmp/udp2raw_amd64 /opt/udp2raw/udp2raw && chmod +x /opt/udp2raw/udp2raw
        
-       echo -e "\n${YELLOW}-----------------------------------------${NC}"
-       echo -e "${GREEN}YOUR PUBLIC KEY:${NC} ${WHITE}$MY_PUB${NC}"
-       echo -e "${YELLOW}-----------------------------------------${NC}\n"
+       echo -e "\n${YELLOW}--- YOUR PUBLIC KEY: $MY_PUB ---${NC}\n"
 
        if [ "$role" == "1" ]; then read -p "Iran PubKey: " PEER_PUB
          echo -e "[Interface]\nPrivateKey = $MY_PRIV\nAddress = 10.0.0.1/24\nListenPort = 51820\nMTU = $T_MTU\n[Peer]\nPublicKey = $PEER_PUB\nAllowedIPs = 10.0.0.2/32" > /etc/wireguard/wg0.conf
@@ -206,22 +239,18 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 EOF
-       systemctl daemon-reload && systemctl enable --now tunnel; echo -e "${GREEN}✔ Installation Finished.${NC}"; read -p "Press Enter..." ;;
-    2) echo -e "1) GOST\n2) HAProxy"; read -p "Select: " p_opt; [ "$p_opt" == "1" ] && manage_gost ;;
+       systemctl daemon-reload && systemctl enable --now tunnel; echo -e "${GREEN}✔ Done.${NC}"; read -p "Press Enter..." ;;
+    2) setup_port_forward ;;
     3) setup_telegram ;;
     4) setup_auto_healer ;;
     5) setup_daily_report ;;
     6) show_status ;;
     7) 
-       echo -e "\n${YELLOW}[!] Starting Full Uninstall...${NC}"
-       systemctl stop tunnel gost-* haproxy 2>/dev/null && echo -e "${GREEN}✔ Services stopped.${NC}"
-       systemctl disable tunnel gost-* 2>/dev/null && echo -e "${GREEN}✔ Autostart disabled.${NC}"
-       wg-quick down wg0 2>/dev/null && echo -e "${GREEN}✔ Network closed.${NC}"
+       systemctl stop tunnel gost-* haproxy 2>/dev/null; systemctl disable tunnel gost-* 2>/dev/null; wg-quick down wg0 2>/dev/null
        rm -rf /etc/wireguard /opt/udp2raw /etc/systemd/system/tunnel.service /etc/systemd/system/gost-*.service
        rm -f /etc/sysctl.d/99-tunnel.conf $REPORT_SCRIPT $HEALER_SCRIPT $TELEGRAM_CONF
        crontab -l 2>/dev/null | grep -vE "tunnel_healer.sh|tunnel_report.sh" | crontab -
-       systemctl daemon-reload
-       echo -e "${RED}✔ UNINSTALL COMPLETED SUCCESSFULLY.${NC}"; read -p "Press Enter..." ;;
+       systemctl daemon-reload; echo -e "${RED}✔ UNINSTALLED.${NC}"; read -p "Press Enter..." ;;
     8) exit 0 ;;
 esac
 done

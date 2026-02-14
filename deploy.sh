@@ -193,7 +193,7 @@ send_daily_report() {
     TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${D:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${U:-0} ))
     RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     
-    RESULT=$(curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Manual Report%0A🖥Host: $(hostname)%0A🔁Resets: $RC%0ADown: $((TD/1048576)) MB%0AUp: $((TU/1048576)) MB")
+    RESULT=$(curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Manual Report%0A🖥Host: $(hostname)%0A🔁Resets: $RC%0A📥Down: $((TD/1048576)) MB%0A📤Up: $((TU/1048576)) MB")
     [[ $RESULT == *"ok\":true"* ]] && echo -e "${GREEN}✔ Sent!${NC}" || echo -e "${RED}❌ Failed: $RESULT${NC}"
     read -p "Press Enter..."
 }

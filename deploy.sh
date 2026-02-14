@@ -243,7 +243,7 @@ echo "3) Telegram Bot Settings"
 echo "4) Anti-Lag Auto-Healer"
 echo "5) Daily Traffic Report"
 echo "6) Show Full System Status"
-echo "7) Full Uninstall"
+echo "7) Uninstall"
 echo "8) Exit"
 read -p "Select: " opt
 

@@ -112,14 +112,42 @@ setup_port_forward() {
 }
 
 # --- 3. Telegram & Healer ---
-
 setup_telegram() {
     echo -e "\n${CYAN}--- Telegram Bot Configuration ---${NC}"
     read -p "Enter Bot Token: " BTN; BTN=$(echo $BTN | sed 's/\$//g')
     read -p "Enter Chat ID: " CID; CID=$(echo $CID | sed 's/\$//g')
-    echo "TOKEN=$BTN" > $TELEGRAM_CONF; echo "CHATID=$CID" >> $TELEGRAM_CONF
-    curl -s -X POST "https://api.telegram.org/bot$BTN/sendMessage" -d "chat_id=$CID" -d "text=✅ MASTER TUNNEL PRO Connected!" > /dev/null
-    echo -e "${GREEN}✔ Linked & Test message sent.${NC}"
+    
+    echo -e "\n${YELLOW}Where is this server located?${NC}"
+    echo "1) Outside Iran (Direct Connection)"
+    echo "2) Inside Iran (Needs Cloudflare Worker Proxy)"
+    read -p "Select [1-2]: " loc_opt
+
+    if [ "$loc_opt" == "2" ]; then
+        echo -e "${WHITE}Enter your Cloudflare Worker URL (e.g., mybot.user.workers.dev):${NC}"
+        read -p "URL: " W_URL
+        # تمیز کردن آدرس (حذف پروتکل و اسلش اضافه)
+        W_URL=$(echo $W_URL | sed 's|https://||g' | sed 's|/||g')
+        TG_BASE="https://$W_URL"
+    else
+        TG_BASE="https://api.telegram.org"
+    fi
+
+    # ذخیره در فایل کانفیگ برای استفاده بقیه بخش‌ها
+    echo "TOKEN=$BTN" > $TELEGRAM_CONF
+    echo "CHATID=$CID" >> $TELEGRAM_CONF
+    echo "TG_URL=$TG_BASE" >> $TELEGRAM_CONF
+
+    # تست اتصال
+    echo -e "${YELLOW}[*] Sending test message...${NC}"
+    RESULT=$(curl -s -X POST "$TG_BASE/bot$BTN/sendMessage" \
+        -d "chat_id=$CID" \
+        -d "text=✅ MASTER TUNNEL PRO%0A🌐 Connection: Established via $TG_BASE")
+
+    if [[ $RESULT == *"ok\":true"* ]]; then
+        echo -e "${GREEN}✔ Linked & Test message sent!${NC}"
+    else
+        echo -e "${RED}❌ Connection Failed! Check Token or Worker URL.${NC}"
+    fi
     read -p "Press Enter..."
 }
 
@@ -135,14 +163,14 @@ setup_auto_healer() {
         read -p "Select [1-3]: " ah_opt
         case $ah_opt in
             1)
-                # ایجاد فایل‌های ذخیره آمار (قلک ترافیک)
+                # ایجاد فایل‌های ذخیره آمار
                 touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
                 [ ! -s /etc/tunnel_reset_count ] && echo "0" > /etc/tunnel_reset_count
                 [ ! -s /etc/total_down ] && echo "0" > /etc/total_down
                 [ ! -s /etc/total_up ] && echo "0" > /etc/total_up
                 chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
 
-                cat <<'EOF' > $HEALER_SCRIPT
+                cat <<EOF > $HEALER_SCRIPT
 #!/bin/bash
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
@@ -150,25 +178,22 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 TARGET="10.0.0.1"
 if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
 
-# بررسی اتصال
 check_connection() {
     if ! ip link show wg0 > /dev/null 2>&1; then return 1; fi
     for i in {1..3}; do
-        if ping -c 1 -W 3 $TARGET > /dev/null 2>&1; then return 0; fi
+        if ping -c 1 -W 3 \$TARGET > /dev/null 2>&1; then return 0; fi
         sleep 2
     done
     return 1
 }
 
 if ! check_connection; then
-    # ذخیره ترافیک فعلی در قلک قبل از ریست شدن (بسیار مهم)
-    STATS=$(wg show wg0 transfer 2>/dev/null)
-    D_BYTES=$(echo $STATS | awk '{print $2}')
-    U_BYTES=$(echo $STATS | awk '{print $5}')
-    [[ "$D_BYTES" =~ ^[0-9]+$ ]] && echo $(( $(cat /etc/total_down 2>/dev/null || echo 0) + D_BYTES )) > /etc/total_down
-    [[ "$U_BYTES" =~ ^[0-9]+$ ]] && echo $(( $(cat /etc/total_up 2>/dev/null || echo 0) + U_BYTES )) > /etc/total_up
+    STATS=\$(wg show wg0 transfer 2>/dev/null)
+    D_BYTES=\$(echo \$STATS | awk '{print \$2}')
+    U_BYTES=\$(echo \$STATS | awk '{print \$5}')
+    [[ "\$D_BYTES" =~ ^[0-9]+\$ ]] && echo \$(( \$(cat /etc/total_down 2>/dev/null || echo 0) + D_BYTES )) > /etc/total_down
+    [[ "\$U_BYTES" =~ ^[0-9]+\$ ]] && echo \$(( \$(cat /etc/total_up 2>/dev/null || echo 0) + U_BYTES )) > /etc/total_up
 
-    # عملیات ریستارت سرویس‌ها
     systemctl stop tunnel > /dev/null 2>&1
     wg-quick down wg0 > /dev/null 2>&1
     ip link delete wg0 > /dev/null 2>&1
@@ -176,49 +201,41 @@ if ! check_connection; then
     sleep 5
     wg-quick up wg0 > /dev/null 2>&1
     
-    # افزایش تعداد ریست‌های روزانه
-    COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
-    echo $((COUNT + 1)) > /etc/tunnel_reset_count
+    COUNT=\$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+    echo \$((COUNT + 1)) > /etc/tunnel_reset_count
 
-    if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Done!*%0A🌐 Host: $(hostname)%0A🔄 Status: Tunnel Recovered." -d "parse_mode=Markdown" > /dev/null
+    if [ -n "\$TOKEN" ]; then
+        curl -s -X POST "\$TG_URL/bot\$TOKEN/sendMessage" -d "chat_id=\$CHATID" -d "text=🚨 *Auto-Heal Done!*%0A🌐 Host: \$(hostname)%0A🔄 Status: Tunnel Recovered." -d "parse_mode=Markdown" > /dev/null
     fi
 fi
 
-# ارسال گزارش خودکار در ساعت 00:00
-if [ "$(date +%H:%M)" == "00:00" ]; then
-    FINAL_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+if [ "\$(date +%H:%M)" == "00:00" ]; then
+    FINAL_COUNT=\$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+    CUR_STATS=\$(wg show wg0 transfer 2>/dev/null)
+    CUR_D=\$(echo \$CUR_STATS | awk '{print \$2}')
+    CUR_U=\$(echo \$CUR_STATS | awk $\$5}')
     
-    # محاسبه کل ترافیک (قلک + ترافیک فعلی کارت شبکه)
-    CUR_STATS=$(wg show wg0 transfer 2>/dev/null)
-    CUR_D=$(echo $CUR_STATS | awk '{print $2}')
-    CUR_U=$(echo $CUR_STATS | awk '{print $5}')
-    
-    TOTAL_D_B=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CUR_D:-0} ))
-    TOTAL_U_B=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CUR_U:-0} ))
-    
-    D_MB=$(( TOTAL_D_B / 1048576 ))
-    U_MB=$(( TOTAL_U_B / 1048576 ))
+    TOTAL_D_B=\$(( \$(cat /etc/total_down 2>/dev/null || echo 0) + \${CUR_D:-0} ))
+    TOTAL_U_B=\$(( \$(cat /etc/total_up 2>/dev/null || echo 0) + \${CUR_U:-0} ))
+    D_MB=\$(( TOTAL_D_B / 1048576 ))
+    U_MB=\$(( TOTAL_U_B / 1048576 ))
 
-    if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" \
-            -d "text=📊 *Daily Tunnel Report*%0A📅 Date: $(date +%Y-%m-%d)%0A🔄 Total Resets: $FINAL_COUNT%0A📥 Total Down: $D_MB MB%0A📤 Total Up: $U_MB MB" \
+    if [ -n "\$TOKEN" ]; then
+        curl -s -X POST "\$TG_URL/bot\$TOKEN/sendMessage" -d "chat_id=\$CHATID" \
+            -d "text=📊 *Daily Tunnel Report*%0A📅 Date: \$(date +%Y-%m-%d)%0A🔄 Total Resets: \$FINAL_COUNT%0A📥 Total Down: \$D_MB MB%0A📤 Total Up: \$U_MB MB" \
             -d "parse_mode=Markdown" > /dev/null
     fi
     
-    # صفر کردن آمار برای روز جدید
     echo "0" > /etc/tunnel_reset_count
     echo "0" > /etc/total_down
     echo "0" > /etc/total_up
 fi
 EOF
                 chmod +x $HEALER_SCRIPT
-                # اضافه کردن به کرون‌جاب (اجرا هر ۱ دقیقه)
                 (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
                 echo -e "${GREEN}✔ Ultimate Healer with Traffic Bank installed.${NC}" ;;
             
             2)
-                # حذف کرون‌جاب و فایل‌ها
                 crontab -l 2>/dev/null | grep -v "tunnel_healer.sh" | crontab -
                 rm -f $HEALER_SCRIPT /etc/tunnel_reset_count /etc/total_down /etc/total_up
                 echo -e "${RED}✔ Healer uninstalled and stats cleared.${NC}" ;;
@@ -258,7 +275,8 @@ manage_daily_report() {
                 U_MB=$(( TOTAL_U_B / 1048576 ))
                 RC_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
 
-                RESULT=$(curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+                # --- تغییر این خط برای پشتیبانی از ورکر کلادفلر ---
+                RESULT=$(curl -s -X POST "$TG_URL/bot$TOKEN/sendMessage" \
                     -d "chat_id=$CHATID" \
                     -d "text=📊 *Tunnel Status Report*%0A🌐 Host: $(hostname)%0A🔄 Total Resets: $RC_COUNT%0A📥 Total Down: $D_MB MB%0A📤 Total Up: $U_MB MB" \
                     -d "parse_mode=Markdown")
@@ -266,7 +284,7 @@ manage_daily_report() {
                 if [[ $RESULT == *"ok\":true"* ]]; then
                     echo -e "${GREEN}✅ Report sent to Telegram successfully.${NC}"
                 else
-                    echo -e "${RED}❌ Error sending report. Check your Token/ChatID.${NC}"
+                    echo -e "${RED}❌ Error sending report. Check your Token/ChatID or Worker URL.${NC}"
                 fi
                 read -p "Press Enter..." ;;
 
@@ -277,10 +295,8 @@ manage_daily_report() {
                 echo "0" > /etc/total_up
                 
                 if [ -f $HEALER_SCRIPT ]; then
-                    # Removes the daily report section from healer script
-                    sed -i '/# ارسال گزارش روزانه/,/fi/d' $HEALER_SCRIPT 2>/dev/null
-                    # Also remove the English comment version just in case
-                    sed -i '/# Daily Report/,/fi/d' $HEALER_SCRIPT 2>/dev/null
+                    # پاک کردن بخش گزارش خودکار از فایل هیلر
+                    sed -i '/# ارسال گزارش خودکار/,/fi/d' $HEALER_SCRIPT 2>/dev/null
                     echo -e "${GREEN}✔ 00:00 Daily Report disabled.${NC}"
                 fi
                 echo -e "${RED}✔ All traffic stats have been reset.${NC}"

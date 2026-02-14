@@ -119,36 +119,27 @@ setup_telegram() {
     
     echo -e "\n${YELLOW}Where is this server located?${NC}"
     echo "1) Outside Iran (Direct Connection)"
-    echo "2) Inside Iran (Needs Cloudflare Worker Proxy)"
+    echo "2) Inside Iran (Needs Cloudflare Worker Proxy)${NC}"
     read -p "Select [1-2]: " loc_opt
 
     if [ "$loc_opt" == "2" ]; then
         echo -e "${WHITE}Enter your Cloudflare Worker URL (e.g., bot.venuseco.ir):${NC}"
         read -p "URL: " W_URL
-        
-        # حذف https:// یا http:// در صورتی که کاربر وارد کرده باشد برای پردازش تمیز
+        # حذف پروتکل‌ها و اسلش‌های اضافه برای جلوگیری از تداخل
         W_URL=$(echo $W_URL | sed 's|https://||g' | sed 's|http://||g' | sed 's|/||g')
-        
-        # سوال در مورد پروتکل (مخصوص دامنه‌های .ir)
-        echo -e "${YELLOW}Use SSL (HTTPS)? (Recommended: n for .ir domains)${NC}"
-        read -p "[y/n]: " use_ssl
-        if [[ $use_ssl == "y" || $use_ssl == "Y" ]]; then
-            TG_BASE="https://$W_URL"
-        else
-            TG_BASE="http://$W_URL"
-        fi
+        TG_BASE="https://$W_URL"
     else
         TG_BASE="https://api.telegram.org"
     fi
 
-    # ذخیره در فایل کانفیگ
+    # ذخیره تنظیمات
     echo "TOKEN=$BTN" > $TELEGRAM_CONF
     echo "CHATID=$CID" >> $TELEGRAM_CONF
     echo "TG_URL=$TG_BASE" >> $TELEGRAM_CONF
 
-    # تست اتصال با تایم‌اوت ۵ ثانیه برای جلوگیری از فریز شدن
     echo -e "${YELLOW}[*] Sending test message to $TG_BASE ...${NC}"
-    RESULT=$(curl -s --connect-timeout 5 -X POST "$TG_BASE/bot$BTN/sendMessage" \
+    # استفاده از -sk برای نادیده گرفتن خطای SSL دامنه‌های IR و تایم‌اوت ۱۰ ثانیه
+    RESULT=$(curl -sk --connect-timeout 10 -X POST "$TG_BASE/bot$BTN/sendMessage" \
         -d "chat_id=$CID" \
         -d "text=✅ MASTER TUNNEL PRO%0A🌐 Connection: Established via $TG_BASE")
 
@@ -156,7 +147,7 @@ setup_telegram() {
         echo -e "${GREEN}✔ Linked & Test message sent!${NC}"
     else
         echo -e "${RED}❌ Connection Failed!${NC}"
-        echo -e "${YELLOW}Tip: If using .ir domain, try with 'n' for SSL.${NC}"
+        echo -e "${YELLOW}Debug Info: $RESULT${NC}"
     fi
     read -p "Press Enter..."
 }
@@ -256,6 +247,7 @@ EOF
 
 manage_daily_report() {
     while true; do
+        clear  # اضافه کردن کلیر برای تمیز ماندن منو
         echo -e "\n${CYAN}>>> Traffic Report Management <<<${NC}"
         echo "1) Send Manual Report Now"
         echo "2) Reset Stats & Disable Daily Report"
@@ -267,8 +259,11 @@ manage_daily_report() {
                     source $TELEGRAM_CONF
                 else
                     echo -e "${RED}❌ Telegram settings not found. (Use option 3 first)${NC}"
+                    read -p "Press Enter..."
                     break
                 fi
+
+                echo -e "${YELLOW}[*] Calculating traffic and sending...${NC}"
 
                 # Traffic Calculation (Bank + Current)
                 CUR_STATS=$(wg show wg0 transfer 2>/dev/null)
@@ -282,8 +277,8 @@ manage_daily_report() {
                 U_MB=$(( TOTAL_U_B / 1048576 ))
                 RC_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
 
-                # --- تغییر این خط برای پشتیبانی از ورکر کلادفلر ---
-                RESULT=$(curl -s -X POST "$TG_URL/bot$TOKEN/sendMessage" \
+                # --- اصلاح شده: اضافه کردن -sk و تایم‌اوت برای پشتیبانی از ورکر و دامنه‌های IR ---
+                RESULT=$(curl -sk --connect-timeout 15 -X POST "$TG_URL/bot$TOKEN/sendMessage" \
                     -d "chat_id=$CHATID" \
                     -d "text=📊 *Tunnel Status Report*%0A🌐 Host: $(hostname)%0A🔄 Total Resets: $RC_COUNT%0A📥 Total Down: $D_MB MB%0A📤 Total Up: $U_MB MB" \
                     -d "parse_mode=Markdown")
@@ -291,7 +286,8 @@ manage_daily_report() {
                 if [[ $RESULT == *"ok\":true"* ]]; then
                     echo -e "${GREEN}✅ Report sent to Telegram successfully.${NC}"
                 else
-                    echo -e "${RED}❌ Error sending report. Check your Token/ChatID or Worker URL.${NC}"
+                    echo -e "${RED}❌ Error sending report.${NC}"
+                    echo -e "${YELLOW}Debug: $RESULT${NC}"
                 fi
                 read -p "Press Enter..." ;;
 
@@ -302,7 +298,6 @@ manage_daily_report() {
                 echo "0" > /etc/total_up
                 
                 if [ -f $HEALER_SCRIPT ]; then
-                    # پاک کردن بخش گزارش خودکار از فایل هیلر
                     sed -i '/# ارسال گزارش خودکار/,/fi/d' $HEALER_SCRIPT 2>/dev/null
                     echo -e "${GREEN}✔ 00:00 Daily Report disabled.${NC}"
                 fi
@@ -325,7 +320,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -355,7 +350,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

@@ -315,7 +315,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -332,8 +332,10 @@ show_status() {
 
 # --- Main Menu ---
 
+clear  # این خط را اینجا اضافه کن تا قبل از ورود به حلقه یکبار پاک شود
+
 while true; do
-    # اینجا اضافه کن:
+    # لود کردن تنظیمات
     [ -f "$TELEGRAM_CONF" ] && source "$TELEGRAM_CONF"
     
 echo -e "${CYAN}========================================================"
@@ -343,7 +345,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

@@ -323,7 +323,19 @@ echo "8) Exit"
 read -p "Select: " opt
 
 case $opt in
-    1) optimize_system; apt update && apt install -y wireguard iptables curl tar bc > /dev/null 2>&1
+    1) optimize_system; echo -e "${YELLOW}[*] Updating packages (this may take a minute)...${NC}"
+   # حذف قفل‌های احتمالی قبل از شروع
+   rm -f /var/lib/dpkg/lock* /var/lib/apt/lists/lock*
+   
+   # اجرای آپدیت با خروجی محدود برای دیدن پیشرفت
+   apt-get update -y && apt-get install -y wireguard iptables curl tar bc
+   
+   if [ $? -ne 0 ]; then
+       echo -e "${RED}❌ Package installation failed. Please run 'apt update' manually.${NC}"
+       read -p "Press Enter..."
+       continue
+   fi
+   # ... بقیه کد نصب
        mkdir -p /etc/wireguard; [ ! -f /etc/wireguard/private.key ] && wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
        MY_PUB=$(cat /etc/wireguard/public.key); MY_PRIV=$(cat /etc/wireguard/private.key)
        

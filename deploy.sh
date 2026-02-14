@@ -229,33 +229,70 @@ EOF
 }
 
 # --- بخش ۵: اصلاح شده ---
-send_daily_report() {
-    # 1. خواندن تنظیمات جدید
-    if [ -f /etc/tunnel_telegram.conf ]; then
-        source /etc/tunnel_telegram.conf
-    else
-        echo "❌ تنظیمات تلگرام یافت نشد. ابتدا گزینه ۳ را بزنید."
-        return
-    fi
 
-    # 2. استخراج ترافیک و تعداد ریست‌ها
-    TRAFFIC=$(wg show wg0 transfer 2>/dev/null)
-    RC_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
-    DOWN=$(echo "$TRAFFIC" | awk '{print $2 " " $3}')
-    UP=$(echo "$TRAFFIC" | awk '{print $5 " " $6}')
+manage_daily_report() {
+    while true; do
+        echo -e "\n${CYAN}>>> مدیریت گزارش ترافیک <<<${NC}"
+        echo "1) ارسال گزارش دستی (همین حالا)"
+        echo "2) حذف آمار و غیرفعال کردن گزارش روزانه"
+        echo "3) بازگشت"
+        read -p "انتخاب کنید [1-3]: " r_opt
+        case $r_opt in
+            1)
+                # --- این همان کد قبلی شماست با دقت بیشتر در محاسبه ---
+                if [ -f /etc/tunnel_telegram.conf ]; then
+                    source /etc/tunnel_telegram.conf
+                else
+                    echo -e "${RED}❌ تنظیمات تلگرام یافت نشد. ابتدا گزینه ۳ را بزنید.${NC}"
+                    break
+                fi
 
-    # 3. ارسال پیام (با همان متغیرهای TOKEN و CHATID فایل جدید)
-    RESULT=$(curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-        -d "chat_id=$CHATID" \
-        -d "text=📊 *گزارش وضعیت تانل*%0A📅 تاریخ: $(date +%Y-%m-%d)%0A🔄 دفعات بازیابی: $RC_COUNT%0A📥 دانلود: ${DOWN:-0 B}%0A📤 آپلود: ${UP:-0 B}" \
-        -d "parse_mode=Markdown")
+                # محاسبه ترافیک (زنده + ذخیره شده در قلک)
+                CUR_STATS=$(wg show wg0 transfer 2>/dev/null)
+                CUR_D=$(echo $CUR_STATS | awk '{print $2}')
+                CUR_U=$(echo $CUR_STATS | awk '{print $5}')
+                
+                TOTAL_D_B=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CUR_D:-0} ))
+                TOTAL_U_B=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CUR_U:-0} ))
+                
+                D_MB=$(( TOTAL_D_B / 1048576 ))
+                U_MB=$(( TOTAL_U_B / 1048576 ))
+                RC_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
 
-    if [[ $RESULT == *"ok\":true"* ]]; then
-        echo "✅ گزارش با موفقیت ارسال شد."
-    else
-        echo "❌ خطا در ارسال گزارش. تنظیمات را چک کنید."
-    fi
+                RESULT=$(curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
+                    -d "chat_id=$CHATID" \
+                    -d "text=📊 *گزارش وضعیت تانل*%0A📅 تاریخ: $(date +%Y-%m-%d)%0A🔄 دفعات بازیابی: $RC_COUNT%0A📥 کل دانلود: $D_MB MB%0A📤 کل آپلود: $U_MB MB" \
+                    -d "parse_mode=Markdown")
+
+                if [[ $RESULT == *"ok\":true"* ]]; then
+                    echo -e "${GREEN}✅ گزارش با موفقیت ارسال شد.${NC}"
+                else
+                    echo -e "${RED}❌ خطا در ارسال گزارش.${NC}"
+                fi
+                read -p "اینتر بزنید..." ;;
+
+            2)
+                # --- بخش حذف (Uninstall مخصوص گزارشات) ---
+                echo -e "${YELLOW}[*] در حال پاکسازی آمار و گزارشات...${NC}"
+                # صفر کردن فایل‌های قلک ترافیک
+                echo "0" > /etc/tunnel_reset_count
+                echo "0" > /etc/total_down
+                echo "0" > /etc/total_up
+                
+                # حذف بخش ارسال خودکار از اسکریپت هیلر (اگر وجود داشته باشد)
+                if [ -f $HEALER_SCRIPT ]; then
+                    # این دستور خطوط مربوط به گزارش ساعت 00:00 را از فایل هیلر پاک می‌کند
+                    sed -i '/# ارسال گزارش روزانه/,/fi/d' $HEALER_SCRIPT
+                    echo -e "${GREEN}✔ گزارش‌دهی خودکار ساعت 00:00 غیرفعال شد.${NC}"
+                fi
+                echo -e "${RED}✔ تمامی آمارهای ترافیکی ریست و پاک شدند.${NC}"
+                read -p "اینتر بزنید..." ;;
+            
+            3) break ;;
+        esac
+    done
 }
+
 # --- 4. Status ---
 
 show_status() {

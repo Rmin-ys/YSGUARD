@@ -125,151 +125,76 @@ setup_telegram() {
     read -p "Select [1-2]: " loc_opt
 
     if [ "$loc_opt" == "2" ]; then
-        echo -e "\n${WHITE}Enter Worker URL (e.g., bot.venuseco.ir):${NC}"
+        echo -e "\n${WHITE}Enter Worker URL (e.g., bot.venuseco.ir or bot.ir:8080):${NC}"
         read -p "URL: " W_URL
-        W_URL=$(echo $W_URL | sed 's|https://||g' | sed 's|http://||g' | sed 's|/||g')
+        W_URL=$(echo $W_URL | sed 's|https://||g;s|http://||g;s|/||g')
         
         echo -e "${YELLOW}Use Secure HTTPS? (y/n) [Recommended 'n' for .ir]:${NC}"
         read -p "Selection: " ssl_choice
-        if [[ "$ssl_choice" == "y" || "$ssl_choice" == "Y" ]]; then
-            TG_BASE="https://$W_URL"
-        else
-            TG_BASE="http://$W_URL"
-        fi
+        [[ "$ssl_choice" == "y" || "$ssl_choice" == "Y" ]] && TG_BASE="https://$W_URL" || TG_BASE="http://$W_URL"
     else
         TG_BASE="https://api.telegram.org"
     fi
 
-    # ذخیره تنظیمات
     echo "TOKEN=$BTN" > $TELEGRAM_CONF
     echo "CHATID=$CID" >> $TELEGRAM_CONF
     echo "TG_URL=$TG_BASE" >> $TELEGRAM_CONF
 
     echo -e "\n${YELLOW}[*] Sending test message to $TG_BASE ...${NC}"
-    RESULT=$(curl -sk --connect-timeout 10 -X POST "$TG_BASE/bot$BTN/sendMessage" \
-        -d "chat_id=$CID" \
-        -d "text=✅ MASTER TUNNEL PRO%0A🌐 Connection Established via $TG_BASE")
+    RESULT=$(curl -sk --connect-timeout 10 -X POST "$TG_BASE/bot$BTN/sendMessage" -d "chat_id=$CID" -d "text=✅ MASTER TUNNEL PRO Connected via $TG_BASE")
 
-    if [[ $RESULT == *"ok\":true"* ]]; then
-        echo -e "${GREEN}✔ Linked & Test message sent!${NC}"
-    else
-        echo -e "${RED}❌ Connection Failed!${NC}"
-        echo -e "${YELLOW}Response: $RESULT${NC}"
-    fi
+    [[ $RESULT == *"ok\":true"* ]] && echo -e "${GREEN}✔ Linked!${NC}" || echo -e "${RED}❌ Failed: $RESULT${NC}"
     read -p "Press Enter..."
 }
 
 setup_auto_healer() {
-    # ایجاد فایل‌های ذخیره آمار
     touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
-    [ ! -s /etc/tunnel_reset_count ] && echo "0" > /etc/tunnel_reset_count
-    [ ! -s /etc/total_down ] && echo "0" > /etc/total_down
-    [ ! -s /etc/total_up ] && echo "0" > /etc/total_up
     chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
 
     cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
-
-TARGET="10.0.0.1"
-if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
+TARGET="10.0.0.1"; grep -q "10.0.0.1" /etc/wireguard/wg0.conf && TARGET="10.0.0.2"
 
 check_connection() {
-    if ! ip link show wg0 > /dev/null 2>&1; then return 1; fi
-    for i in {1..3}; do
-        if ping -c 1 -W 3 $TARGET > /dev/null 2>&1; then return 0; fi
-        sleep 2
-    done
-    return 1
+    for i in {1..3}; do ping -c 1 -W 3 $TARGET > /dev/null 2>&1 && return 0; sleep 2; done; return 1
 }
 
 if ! check_connection; then
     STATS=$(wg show wg0 transfer 2>/dev/null)
-    D_BYTES=$(echo $STATS | awk '{print $2}' | sed 's/[^0-9]//g')
-    U_BYTES=$(echo $STATS | awk '{print $5}' | sed 's/[^0-9]//g')
-    [[ "$D_BYTES" =~ ^[0-9]+$ ]] && echo $(( $(cat /etc/total_down 2>/dev/null || echo 0) + D_BYTES )) > /etc/total_down
-    [[ "$U_BYTES" =~ ^[0-9]+$ ]] && echo $(( $(cat /etc/total_up 2>/dev/null || echo 0) + U_BYTES )) > /etc/total_up
-
-    systemctl stop tunnel > /dev/null 2>&1
-    wg-quick down wg0 > /dev/null 2>&1
-    ip link delete wg0 > /dev/null 2>&1
-    systemctl start tunnel > /dev/null 2>&1
-    sleep 5
-    wg-quick up wg0 > /dev/null 2>&1
-    
-    COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
-    echo $((COUNT + 1)) > /etc/tunnel_reset_count
-
-    if [ -n "$TOKEN" ]; then
-        curl -sk --connect-timeout 10 -X POST "$TG_URL/bot$TOKEN/sendMessage" \
-            -d "chat_id=$CHATID" \
-            -d "text=🚨 *Auto-Heal Done!*%0A🌐 Host: $(hostname)%0A🔄 Status: Tunnel Recovered." \
-            -d "parse_mode=Markdown" > /dev/null 2>&1
-    fi
+    D=$(echo $STATS | awk '{print $2}' | sed 's/[^0-9]//g'); U=$(echo $STATS | awk '{print $5}' | sed 's/[^0-9]//g')
+    [ -n "$D" ] && echo $(( $(cat /etc/total_down 2>/dev/null || echo 0) + D )) > /etc/total_down
+    [ -n "$U" ] && echo $(( $(cat /etc/total_up 2>/dev/null || echo 0) + U )) > /etc/total_up
+    systemctl stop tunnel; wg-quick down wg0; ip link delete wg0 2>/dev/null; systemctl start tunnel; sleep 5; wg-quick up wg0
+    C=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0); echo $((C + 1)) > /etc/tunnel_reset_count
+    [ -n "$TOKEN" ] && curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 Auto-Heal Done on $(hostname)" >/dev/null 2>&1
 fi
 
 if [ "$(date +%H:%M)" == "00:00" ]; then
-    FINAL_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
-    CUR_STATS=$(wg show wg0 transfer 2>/dev/null)
-    CUR_D=$(echo $CUR_STATS | awk '{print $2}' | sed 's/[^0-9]//g')
-    CUR_U=$(echo $CUR_STATS | awk '{print $5}' | sed 's/[^0-9]//g')
-    
-    TOTAL_D_B=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CUR_D:-0} ))
-    TOTAL_U_B=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CUR_U:-0} ))
-    D_MB=$(( TOTAL_D_B / 1048576 ))
-    U_MB=$(( TOTAL_U_B / 1048576 ))
-
-    if [ -n "$TOKEN" ]; then
-        curl -sk --connect-timeout 15 -X POST "$TG_URL/bot$TOKEN/sendMessage" \
-            -d "chat_id=$CHATID" \
-            -d "text=📊 *Daily Tunnel Report*%0A📅 Date: $(date +%Y-%m-%d)%0A🔄 Total Resets: $FINAL_COUNT%0A📥 Total Down: $D_MB MB%0A📤 Total Up: $U_MB MB" \
-            -d "parse_mode=Markdown" > /dev/null 2>&1
-    fi
-    
-    echo "0" > /etc/tunnel_reset_count
-    echo "0" > /etc/total_down
-    echo "0" > /etc/total_up
+    RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+    S=$(wg show wg0 transfer 2>/dev/null); CD=$(echo $S | awk '{print $2}' | sed 's/[^0-9]//g'); CU=$(echo $S | awk '{print $5}' | sed 's/[^0-9]//g')
+    TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CD:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CU:-0} ))
+    [ -n "$TOKEN" ] && curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Report%0AResets: $RC%0ADown: $((TD/1048576)) MB%0AUp: $((TU/1048576)) MB" >/dev/null 2>&1
+    echo "0" > /etc/tunnel_reset_count; echo "0" > /etc/total_down; echo "0" > /etc/total_up
 fi
 EOF
     chmod +x $HEALER_SCRIPT
     (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Ultimate Smart Healer with Traffic Reporting installed.${NC}"
+    echo -e "${GREEN}✔ Healer Updated.${NC}"
 }
 
 send_daily_report() {
     clear
-    echo -e "\n${CYAN}>>> Traffic Report Management <<<${NC}"
-    if [ -f "$TELEGRAM_CONF" ]; then
-        source "$TELEGRAM_CONF"
-    else
-        echo -e "${RED}❌ Telegram settings not found. (Use option 3 first)${NC}"
-        read -p "Press Enter..."
-        return
-    fi
-
-    echo -e "${YELLOW}[*] Calculating traffic and sending report...${NC}"
-    CUR_STATS=$(wg show wg0 transfer 2>/dev/null)
-    CUR_D=$(echo $CUR_STATS | awk '{print $2}' | sed 's/[^0-9]//g')
-    CUR_U=$(echo $CUR_STATS | awk '{print $5}' | sed 's/[^0-9]//g')
+    [ ! -f "$TELEGRAM_CONF" ] && echo "Set Telegram first!" && return
+    source "$TELEGRAM_CONF"
+    echo -e "${YELLOW}[*] Sending manual report...${NC}"
+    S=$(wg show wg0 transfer 2>/dev/null); D=$(echo $S | awk '{print $2}' | sed 's/[^0-9]//g'); U=$(echo $S | awk '{print $5}' | sed 's/[^0-9]//g')
+    TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${D:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${U:-0} ))
+    RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     
-    TOTAL_D_B=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CUR_D:-0} ))
-    TOTAL_U_B=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CUR_U:-0} ))
-    D_MB=$(( TOTAL_D_B / 1048576 ))
-    U_MB=$(( TOTAL_U_B / 1048576 ))
-    RC_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
-
-    RESULT=$(curl -sk --connect-timeout 15 -X POST "$TG_URL/bot$TOKEN/sendMessage" \
-        -d "chat_id=$CHATID" \
-        -d "text=📊 *Manual Status Report*%0A🌐 Host: $(hostname)%0A🔄 Total Resets: $RC_COUNT%0A📥 Total Down: $D_MB MB%0A📤 Total Up: $U_MB MB" \
-        -d "parse_mode=Markdown")
-
-    if [[ $RESULT == *"ok\":true"* ]]; then
-        echo -e "${GREEN}✅ Report sent to Telegram successfully.${NC}"
-    else
-        echo -e "${RED}❌ Error sending report.${NC}"
-        echo -e "${YELLOW}Debug: $RESULT${NC}"
-    fi
+    RESULT=$(curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Manual Report%0AHost: $(hostname)%0AResets: $RC%0ADown: $((TD/1048576)) MB%0AUp: $((TU/1048576)) MB")
+    [[ $RESULT == *"ok\":true"* ]] && echo -e "${GREEN}✔ Sent!${NC}" || echo -e "${RED}❌ Failed: $RESULT${NC}"
     read -p "Press Enter..."
 }
 

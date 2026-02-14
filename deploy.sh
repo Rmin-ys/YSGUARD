@@ -294,11 +294,46 @@ EOF
     5) send_daily_report ;;
     6) show_status ;;
     7) 
-       systemctl stop tunnel gost-* haproxy 2>/dev/null; systemctl disable tunnel gost-* 2>/dev/null; wg-quick down wg0 2>/dev/null
-       rm -rf /etc/wireguard /opt/udp2raw /etc/systemd/system/tunnel.service /etc/systemd/system/gost-*.service
-       rm -f /etc/sysctl.d/99-tunnel.conf $REPORT_SCRIPT $HEALER_SCRIPT $TELEGRAM_CONF
-       crontab -l 2>/dev/null | grep -vE "tunnel_healer.sh|tunnel_report.sh" | crontab -
-       systemctl daemon-reload; echo -e "${RED}✔ UNINSTALLED.${NC}"; read -p "Press Enter..." ;;
+       7) 
+            clear
+            echo -e "${RED}>>> Uninstall Management <<<${NC}"
+            echo "1) Uninstall Everything (Full Reset)"
+            echo "2) Remove Only Auto-Healer"
+            echo "3) Remove Only Telegram Settings"
+            echo "4) Remove Only Port Forwards (GOST/HAProxy)"
+            echo "5) Back"
+            read -p "Select [1-5]: " un_opt
+            
+            case $un_opt in
+                1)
+                    systemctl stop tunnel gost-* haproxy 2>/dev/null
+                    systemctl disable tunnel gost-* 2>/dev/null
+                    wg-quick down wg0 2>/dev/null
+                    rm -rf /etc/wireguard /opt/udp2raw /etc/systemd/system/tunnel.service /etc/systemd/system/gost-*.service
+                    rm -f /etc/sysctl.d/99-tunnel.conf $HEALER_SCRIPT $TELEGRAM_CONF
+                    crontab -l 2>/dev/null | grep -v "tunnel_healer.sh" | crontab -
+                    echo -e "${RED}✔ All components uninstalled.${NC}"
+                    sleep 2 ;;
+                2)
+                    crontab -l 2>/dev/null | grep -v "tunnel_healer.sh" | crontab -
+                    rm -f $HEALER_SCRIPT
+                    echo -e "${YELLOW}✔ Auto-Healer removed from Cron and System.${NC}"
+                    sleep 2 ;;
+                3)
+                    rm -f $TELEGRAM_CONF
+                    echo -e "${YELLOW}✔ Telegram configuration cleared.${NC}"
+                    sleep 2 ;;
+                4)
+                    systemctl stop gost-* 2>/dev/null
+                    systemctl disable gost-* 2>/dev/null
+                    rm -f /etc/systemd/system/gost-*.service
+                    [ -f $HAPROXY_CONF ] && echo "" > $HAPROXY_CONF && systemctl restart haproxy
+                    systemctl daemon-reload
+                    echo -e "${YELLOW}✔ All port forwards cleared.${NC}"
+                    sleep 2 ;;
+                5) continue ;;
+            esac
+            ;;
     8) exit 0 ;;
 esac
 done

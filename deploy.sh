@@ -232,22 +232,21 @@ EOF
 
 manage_daily_report() {
     while true; do
-        echo -e "\n${CYAN}>>> مدیریت گزارش ترافیک <<<${NC}"
-        echo "1) ارسال گزارش دستی (همین حالا)"
-        echo "2) حذف آمار و غیرفعال کردن گزارش روزانه"
-        echo "3) بازگشت"
-        read -p "انتخاب کنید [1-3]: " r_opt
+        echo -e "\n${CYAN}>>> Traffic Report Management <<<${NC}"
+        echo "1) Send Manual Report Now"
+        echo "2) Reset Stats & Disable Daily Report"
+        echo "3) Back"
+        read -p "Select [1-3]: " r_opt
         case $r_opt in
             1)
-                # --- این همان کد قبلی شماست با دقت بیشتر در محاسبه ---
-                if [ -f /etc/tunnel_telegram.conf ]; then
-                    source /etc/tunnel_telegram.conf
+                if [ -f $TELEGRAM_CONF ]; then
+                    source $TELEGRAM_CONF
                 else
-                    echo -e "${RED}❌ تنظیمات تلگرام یافت نشد. ابتدا گزینه ۳ را بزنید.${NC}"
+                    echo -e "${RED}❌ Telegram settings not found. (Use option 3 first)${NC}"
                     break
                 fi
 
-                # محاسبه ترافیک (زنده + ذخیره شده در قلک)
+                # Traffic Calculation (Bank + Current)
                 CUR_STATS=$(wg show wg0 transfer 2>/dev/null)
                 CUR_D=$(echo $CUR_STATS | awk '{print $2}')
                 CUR_U=$(echo $CUR_STATS | awk '{print $5}')
@@ -261,32 +260,31 @@ manage_daily_report() {
 
                 RESULT=$(curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
                     -d "chat_id=$CHATID" \
-                    -d "text=📊 *گزارش وضعیت تانل*%0A📅 تاریخ: $(date +%Y-%m-%d)%0A🔄 دفعات بازیابی: $RC_COUNT%0A📥 کل دانلود: $D_MB MB%0A📤 کل آپلود: $U_MB MB" \
+                    -d "text=📊 *Tunnel Status Report*%0A🌐 Host: $(hostname)%0A🔄 Total Resets: $RC_COUNT%0A📥 Total Down: $D_MB MB%0A📤 Total Up: $U_MB MB" \
                     -d "parse_mode=Markdown")
 
                 if [[ $RESULT == *"ok\":true"* ]]; then
-                    echo -e "${GREEN}✅ گزارش با موفقیت ارسال شد.${NC}"
+                    echo -e "${GREEN}✅ Report sent to Telegram successfully.${NC}"
                 else
-                    echo -e "${RED}❌ خطا در ارسال گزارش.${NC}"
+                    echo -e "${RED}❌ Error sending report. Check your Token/ChatID.${NC}"
                 fi
-                read -p "اینتر بزنید..." ;;
+                read -p "Press Enter..." ;;
 
             2)
-                # --- بخش حذف (Uninstall مخصوص گزارشات) ---
-                echo -e "${YELLOW}[*] در حال پاکسازی آمار و گزارشات...${NC}"
-                # صفر کردن فایل‌های قلک ترافیک
+                echo -e "${YELLOW}[*] Cleaning up stats and logs...${NC}"
                 echo "0" > /etc/tunnel_reset_count
                 echo "0" > /etc/total_down
                 echo "0" > /etc/total_up
                 
-                # حذف بخش ارسال خودکار از اسکریپت هیلر (اگر وجود داشته باشد)
                 if [ -f $HEALER_SCRIPT ]; then
-                    # این دستور خطوط مربوط به گزارش ساعت 00:00 را از فایل هیلر پاک می‌کند
-                    sed -i '/# ارسال گزارش روزانه/,/fi/d' $HEALER_SCRIPT
-                    echo -e "${GREEN}✔ گزارش‌دهی خودکار ساعت 00:00 غیرفعال شد.${NC}"
+                    # Removes the daily report section from healer script
+                    sed -i '/# ارسال گزارش روزانه/,/fi/d' $HEALER_SCRIPT 2>/dev/null
+                    # Also remove the English comment version just in case
+                    sed -i '/# Daily Report/,/fi/d' $HEALER_SCRIPT 2>/dev/null
+                    echo -e "${GREEN}✔ 00:00 Daily Report disabled.${NC}"
                 fi
-                echo -e "${RED}✔ تمامی آمارهای ترافیکی ریست و پاک شدند.${NC}"
-                read -p "اینتر بزنید..." ;;
+                echo -e "${RED}✔ All traffic stats have been reset.${NC}"
+                read -p "Press Enter..." ;;
             
             3) break ;;
         esac
@@ -304,7 +302,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.05 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -330,7 +328,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.05 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

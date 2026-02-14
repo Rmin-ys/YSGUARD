@@ -125,15 +125,24 @@ setup_telegram() {
 
 # --- بخش ۴: نسخه نهایی و ضد خطا ---
 # --- بخش ۴: نسخه نهایی با گزارش روزانه و ترافیک جمع‌شونده ---
-setup_auto_healer() {
-    # ایجاد فایل‌های ذخیره آمار (اگر وجود ندارند)
-    touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
-    echo "0" > /etc/tunnel_reset_count
-    echo "0" > /etc/total_down
-    echo "0" > /etc/total_up
-    chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
 
-    cat <<'EOF' > $HEALER_SCRIPT
+setup_auto_healer() {
+    while true; do
+        echo -e "\n${CYAN}>>> Anti-Lag Auto-Healer <<<${NC}"
+        echo "1) Install/Update Healer (With Traffic Bank)"
+        echo "2) Uninstall Healer (Remove everything)"
+        echo "3) Back"
+        read -p "Select [1-3]: " ah_opt
+        case $ah_opt in
+            1)
+                # ایجاد فایل‌های ذخیره آمار (قلک ترافیک)
+                touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
+                [ ! -s /etc/tunnel_reset_count ] && echo "0" > /etc/tunnel_reset_count
+                [ ! -s /etc/total_down ] && echo "0" > /etc/total_down
+                [ ! -s /etc/total_up ] && echo "0" > /etc/total_up
+                chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
+
+                cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
@@ -141,7 +150,7 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 TARGET="10.0.0.1"
 if grep -q "10.0.0.1" /etc/wireguard/wg0.conf; then TARGET="10.0.0.2"; fi
 
-# تابع بررسی هوشمند
+# بررسی اتصال
 check_connection() {
     if ! ip link show wg0 > /dev/null 2>&1; then return 1; fi
     for i in {1..3}; do
@@ -151,15 +160,15 @@ check_connection() {
     return 1
 }
 
-# عملیات احیا
 if ! check_connection; then
-    # ذخیره ترافیک فعلی قبل از ریست شدن (اضافه به قلک)
+    # ذخیره ترافیک فعلی در قلک قبل از ریست شدن (بسیار مهم)
     STATS=$(wg show wg0 transfer 2>/dev/null)
     D_BYTES=$(echo $STATS | awk '{print $2}')
     U_BYTES=$(echo $STATS | awk '{print $5}')
     [[ "$D_BYTES" =~ ^[0-9]+$ ]] && echo $(( $(cat /etc/total_down 2>/dev/null || echo 0) + D_BYTES )) > /etc/total_down
     [[ "$U_BYTES" =~ ^[0-9]+$ ]] && echo $(( $(cat /etc/total_up 2>/dev/null || echo 0) + U_BYTES )) > /etc/total_up
 
+    # عملیات ریستارت سرویس‌ها
     systemctl stop tunnel > /dev/null 2>&1
     wg-quick down wg0 > /dev/null 2>&1
     ip link delete wg0 > /dev/null 2>&1
@@ -167,7 +176,7 @@ if ! check_connection; then
     sleep 5
     wg-quick up wg0 > /dev/null 2>&1
     
-    # افزایش آمار ریست‌های روزانه
+    # افزایش تعداد ریست‌های روزانه
     COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     echo $((COUNT + 1)) > /etc/tunnel_reset_count
 
@@ -176,11 +185,11 @@ if ! check_connection; then
     fi
 fi
 
-# ارسال گزارش روزانه در ساعت ۰۰:۰۰
+# ارسال گزارش خودکار در ساعت 00:00
 if [ "$(date +%H:%M)" == "00:00" ]; then
     FINAL_COUNT=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     
-    # جمع ترافیک لحظه‌ای با ترافیک‌های ذخیره شده
+    # محاسبه کل ترافیک (قلک + ترافیک فعلی کارت شبکه)
     CUR_STATS=$(wg show wg0 transfer 2>/dev/null)
     CUR_D=$(echo $CUR_STATS | awk '{print $2}')
     CUR_U=$(echo $CUR_STATS | awk '{print $5}')
@@ -188,26 +197,35 @@ if [ "$(date +%H:%M)" == "00:00" ]; then
     TOTAL_D_B=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CUR_D:-0} ))
     TOTAL_U_B=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CUR_U:-0} ))
     
-    # تبدیل به مگابایت برای گزارش (MB)
     D_MB=$(( TOTAL_D_B / 1048576 ))
     U_MB=$(( TOTAL_U_B / 1048576 ))
 
     if [ -n "$TOKEN" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" \
-            -d "chat_id=$CHATID" \
+        curl -s -X POST "https://api.telegram.org/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" \
             -d "text=📊 *Daily Tunnel Report*%0A📅 Date: $(date +%Y-%m-%d)%0A🔄 Total Resets: $FINAL_COUNT%0A📥 Total Down: $D_MB MB%0A📤 Total Up: $U_MB MB" \
             -d "parse_mode=Markdown" > /dev/null
     fi
     
-    # صفر کردن آمار برای شروع روز جدید
+    # صفر کردن آمار برای روز جدید
     echo "0" > /etc/tunnel_reset_count
     echo "0" > /etc/total_down
     echo "0" > /etc/total_up
 fi
 EOF
-    chmod +x $HEALER_SCRIPT
-    (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Ultimate Smart Healer with Traffic Reporting installed.${NC}"
+                chmod +x $HEALER_SCRIPT
+                # اضافه کردن به کرون‌جاب (اجرا هر ۱ دقیقه)
+                (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
+                echo -e "${GREEN}✔ Ultimate Healer with Traffic Bank installed.${NC}" ;;
+            
+            2)
+                # حذف کرون‌جاب و فایل‌ها
+                crontab -l 2>/dev/null | grep -v "tunnel_healer.sh" | crontab -
+                rm -f $HEALER_SCRIPT /etc/tunnel_reset_count /etc/total_down /etc/total_up
+                echo -e "${RED}✔ Healer uninstalled and stats cleared.${NC}" ;;
+            
+            3) break ;;
+        esac
+    done
 }
 
 # --- بخش ۵: اصلاح شده ---

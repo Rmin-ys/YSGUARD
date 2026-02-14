@@ -175,7 +175,7 @@ if [ "$(date +%H:%M)" == "00:00" ]; then
     RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     S=$(wg show wg0 transfer 2>/dev/null); CD=$(echo $S | awk '{print $2}' | sed 's/[^0-9]//g'); CU=$(echo $S | awk '{print $5}' | sed 's/[^0-9]//g')
     TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CD:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CU:-0} ))
-    [ -n "$TOKEN" ] && curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Report%0AResets: $RC%0ADown: $((TD/1048576)) MB%0AUp: $((TU/1048576)) MB" >/dev/null 2>&1
+    [ -n "$TOKEN" ] && curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Report%0A🔁Resets: $RC%0A📥Total Down: $((TD/1048576)) MB%0A📤Total Up: $((TU/1048576)) MB" >/dev/null 2>&1
     echo "0" > /etc/tunnel_reset_count; echo "0" > /etc/total_down; echo "0" > /etc/total_up
 fi
 EOF
@@ -193,7 +193,7 @@ send_daily_report() {
     TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${D:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${U:-0} ))
     RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     
-    RESULT=$(curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Manual Report%0AHost: $(hostname)%0AResets: $RC%0ADown: $((TD/1048576)) MB%0AUp: $((TU/1048576)) MB")
+    RESULT=$(curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Manual Report%0A🖥Host: $(hostname)%0A🔁Resets: $RC%0ADown: $((TD/1048576)) MB%0AUp: $((TU/1048576)) MB")
     [[ $RESULT == *"ok\":true"* ]] && echo -e "${GREEN}✔ Sent!${NC}" || echo -e "${RED}❌ Failed: $RESULT${NC}"
     read -p "Press Enter..."
 }

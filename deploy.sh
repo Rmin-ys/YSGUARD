@@ -163,7 +163,6 @@ setup_auto_healer() {
         read -p "Select [1-3]: " ah_opt
         case $ah_opt in
             1)
-                # ایجاد فایل‌های ذخیره آمار
                 touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
                 [ ! -s /etc/tunnel_reset_count ] && echo "0" > /etc/tunnel_reset_count
                 [ ! -s /etc/total_down ] && echo "0" > /etc/total_down
@@ -213,7 +212,7 @@ if [ "\$(date +%H:%M)" == "00:00" ]; then
     FINAL_COUNT=\$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     CUR_STATS=\$(wg show wg0 transfer 2>/dev/null)
     CUR_D=\$(echo \$CUR_STATS | awk '{print \$2}')
-    CUR_U=\$(echo \$CUR_STATS | awk $\$5}')
+    CUR_U=\$(echo \$CUR_STATS | awk '{print \$5}')
     
     TOTAL_D_B=\$(( \$(cat /etc/total_down 2>/dev/null || echo 0) + \${CUR_D:-0} ))
     TOTAL_U_B=\$(( \$(cat /etc/total_up 2>/dev/null || echo 0) + \${CUR_U:-0} ))
@@ -234,12 +233,10 @@ EOF
                 chmod +x $HEALER_SCRIPT
                 (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
                 echo -e "${GREEN}✔ Ultimate Healer with Traffic Bank installed.${NC}" ;;
-            
             2)
                 crontab -l 2>/dev/null | grep -v "tunnel_healer.sh" | crontab -
                 rm -f $HEALER_SCRIPT /etc/tunnel_reset_count /etc/total_down /etc/total_up
                 echo -e "${RED}✔ Healer uninstalled and stats cleared.${NC}" ;;
-            
             3) break ;;
         esac
     done
@@ -318,7 +315,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -336,7 +333,9 @@ show_status() {
 # --- Main Menu ---
 
 while true; do
-clear
+    # اینجا اضافه کن:
+    [ -f "$TELEGRAM_CONF" ] && source "$TELEGRAM_CONF"
+    
 echo -e "${CYAN}========================================================"
     echo -e "${CYAN}██╗   ██╗███████╗ ██████╗ ██╗   ██╗ █████╗ ██████╗ ██████╗ "
     echo -e "╚██╗ ██╔╝██╔════╝██╔════╝ ██║   ██║██╔══██╗██╔══██╗██╔══██╗"
@@ -344,7 +343,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

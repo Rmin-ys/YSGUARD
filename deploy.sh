@@ -123,30 +123,40 @@ setup_telegram() {
     read -p "Select [1-2]: " loc_opt
 
     if [ "$loc_opt" == "2" ]; then
-        echo -e "${WHITE}Enter your Cloudflare Worker URL (e.g., mybot.user.workers.dev):${NC}"
+        echo -e "${WHITE}Enter your Cloudflare Worker URL (e.g., bot.venuseco.ir):${NC}"
         read -p "URL: " W_URL
-        # تمیز کردن آدرس (حذف پروتکل و اسلش اضافه)
-        W_URL=$(echo $W_URL | sed 's|https://||g' | sed 's|/||g')
-        TG_BASE="https://$W_URL"
+        
+        # حذف https:// یا http:// در صورتی که کاربر وارد کرده باشد برای پردازش تمیز
+        W_URL=$(echo $W_URL | sed 's|https://||g' | sed 's|http://||g' | sed 's|/||g')
+        
+        # سوال در مورد پروتکل (مخصوص دامنه‌های .ir)
+        echo -e "${YELLOW}Use SSL (HTTPS)? (Recommended: n for .ir domains)${NC}"
+        read -p "[y/n]: " use_ssl
+        if [[ $use_ssl == "y" || $use_ssl == "Y" ]]; then
+            TG_BASE="https://$W_URL"
+        else
+            TG_BASE="http://$W_URL"
+        fi
     else
         TG_BASE="https://api.telegram.org"
     fi
 
-    # ذخیره در فایل کانفیگ برای استفاده بقیه بخش‌ها
+    # ذخیره در فایل کانفیگ
     echo "TOKEN=$BTN" > $TELEGRAM_CONF
     echo "CHATID=$CID" >> $TELEGRAM_CONF
     echo "TG_URL=$TG_BASE" >> $TELEGRAM_CONF
 
-    # تست اتصال
-    echo -e "${YELLOW}[*] Sending test message...${NC}"
-    RESULT=$(curl -s -X POST "$TG_BASE/bot$BTN/sendMessage" \
+    # تست اتصال با تایم‌اوت ۵ ثانیه برای جلوگیری از فریز شدن
+    echo -e "${YELLOW}[*] Sending test message to $TG_BASE ...${NC}"
+    RESULT=$(curl -s --connect-timeout 5 -X POST "$TG_BASE/bot$BTN/sendMessage" \
         -d "chat_id=$CID" \
         -d "text=✅ MASTER TUNNEL PRO%0A🌐 Connection: Established via $TG_BASE")
 
     if [[ $RESULT == *"ok\":true"* ]]; then
         echo -e "${GREEN}✔ Linked & Test message sent!${NC}"
     else
-        echo -e "${RED}❌ Connection Failed! Check Token or Worker URL.${NC}"
+        echo -e "${RED}❌ Connection Failed!${NC}"
+        echo -e "${YELLOW}Tip: If using .ir domain, try with 'n' for SSL.${NC}"
     fi
     read -p "Press Enter..."
 }
@@ -315,7 +325,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -345,7 +355,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.03 ]${NC}"
+    echo -e "${WHITE}              [ MASTER TUNNEL PRO v1.01 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

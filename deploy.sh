@@ -243,9 +243,8 @@ echo "3) Telegram Bot Settings"
 echo "4) Anti-Lag Auto-Healer"
 echo "5) Daily Traffic Report"
 echo "6) Show Full System Status"
-echo "7) Debug & Diagnostic Menu"
-echo "8) Uninstall"
-echo "9) Exit"
+echo "7) Uninstall"
+echo "8) Exit"
 read -p "Select: " opt
 
 case $opt in
@@ -294,8 +293,7 @@ EOF
     4) setup_auto_healer ;;
     5) send_daily_report ;;
     6) show_status ;;
-    7) debug_menu ;;
-    8)  
+    7)  
             clear
             echo -e "${RED}>>> Uninstall Management <<<${NC}"
             echo "1) Uninstall Everything (Full Reset)"
@@ -335,60 +333,7 @@ EOF
                 5) continue ;;
             esac
             ;;
-    9) exit 0 ;;
+    8) exit 0 ;;
 esac
 done
 
-# --- 5. Diagnostic & Debug Menu ---
-debug_menu() {
-    clear
-    echo -e "${CYAN}------------------------------------------${NC}"
-    echo -e "${WHITE}      Diagnostic & Debug Manager          ${NC}"
-    echo -e "${CYAN}------------------------------------------${NC}"
-    echo "1) Enable Debug & Healer (Recommended)"
-    echo "2) Disable & Remove Debug System"
-    echo "3) View Last 30 Diagnostic Logs (BlackBox)"
-    echo "4) Back to Main Menu"
-    echo -e "${CYAN}------------------------------------------${NC}"
-    read -p "Please select: " dbg_choice
-
-    case $dbg_choice in
-        1)
-            cat << 'EOF' > /usr/local/bin/tunnel_healer.sh
-#!/bin/bash
-TARGET_IP="10.0.0.1"; grep -q "10.0.0.1" /etc/wireguard/wg0.conf && TARGET_IP="10.0.0.2"
-SERVICE_NAME="tunnel"
-LOG_FILE="/var/log/tunnel_debug.log"
-if ! ping -c 1 -W 2 $TARGET_IP > /dev/null; then
-    echo "--- ⚠️ Diagnostic Start $(date) ---" >> $LOG_FILE
-    echo "1. Memory: $(free -h | awk '/Mem:/ {print "RAM:"$3"/"$2} /Swap:/ {print "Swap:"$3"/"$2}')" >> $LOG_FILE
-    echo "2. System Load: $(uptime | awk -F'load average:' '{print $2}')" >> $LOG_FILE
-    PING_RES=$(ping -c 4 -W 2 8.8.8.8)
-    if [ $? -eq 0 ]; then
-        LOSS=$(echo "$PING_RES" | grep -oP '\d+(?=% packet loss)')
-        echo "3. External Net (8.8.8.8): OK (Loss: $LOSS%)" >> $LOG_FILE
-    else
-        echo "3. External Net (8.8.8.8): FAIL (Datacenter Issue)" >> $LOG_FILE
-    fi
-    echo "4. Service Status: $(systemctl is-active $SERVICE_NAME)" >> $LOG_FILE
-    echo "--- ⚠️ Diagnostic End ---" >> $LOG_FILE
-    systemctl restart $SERVICE_NAME
-fi
-EOF
-            chmod +x /usr/local/bin/tunnel_healer.sh
-            (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * /usr/local/bin/tunnel_healer.sh") | crontab -
-            (crontab -l 2>/dev/null | grep -v "rm -f /var/log/tunnel_debug.log"; echo "0 0 */3 * * rm -f /var/log/tunnel_debug.log") | crontab -
-            echo -e "\n${GREEN}✅ Debug & Healer System Activated!${NC}"
-            sleep 2; debug_menu ;;
-        2)
-            rm -f /usr/local/bin/tunnel_healer.sh /var/log/tunnel_debug.log
-            crontab -l 2>/dev/null | grep -v "tunnel_healer.sh" | grep -v "tunnel_debug.log" | crontab -
-            echo -e "\n${RED}❌ Diagnostic System Removed.${NC}"
-            sleep 2; debug_menu ;;
-        3)
-            clear; echo "--- Last 30 Lines of Diagnostic Log ---"
-            [ -f /var/log/tunnel_debug.log ] && tail -n 30 /var/log/tunnel_debug.log || echo "No logs found."
-            read -p "Press Enter..."; debug_menu ;;
-        4) return ;;
-    esac
-}

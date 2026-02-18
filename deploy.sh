@@ -161,7 +161,7 @@ setup_auto_healer() {
 
         case $h_opt in
             1)
-                # نصب هیلر (بدون بخش دیباگ)
+                # نصب هیلر (بدون تغییر در بخش‌های دیگر، فقط پر کردن گزارش)
                 touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
                 chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
                 
@@ -200,8 +200,14 @@ fi
 
 # گزارش روزانه و پاکسازی 3 روزه لاگ
 if [ "$(date +%H:%M)" == "00:00" ]; then
-    # گزارش تلگرام... (کد خودت)
-    # ...
+    if [ -n "$TOKEN" ]; then
+        RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+        S=$(wg show wg0 transfer 2>/dev/null)
+        CD=$(echo $S | awk '{print $2}' | sed 's/[^0-9]//g'); CU=$(echo $S | awk '{print $5}' | sed 's/[^0-9]//g')
+        TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CD:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CU:-0} ))
+        MSG="📊 *Daily Traffic Report*%0A🖥 *Host:* $(hostname)%0A🔄 *Resets:* $RC%0A📥 *Total Down:* $((TD/1048576)) MB%0A📤 *Total Up:* $((TU/1048576)) MB"
+        curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=$MSG" -d "parse_mode=Markdown" >/dev/null 2>&1
+    fi
     # پاکسازی لاگ هر 3 روز
     [ $(( $(date +%d) % 3 )) -eq 0 ] && rm -f $LOG_FILE
     echo "0" > /etc/tunnel_reset_count; echo "0" > /etc/total_down; echo "0" > /etc/total_up

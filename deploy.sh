@@ -244,6 +244,48 @@ EOF
     done
 }
 
+send_daily_report() {
+    while true; do
+        clear
+        echo -e "${CYAN}--- Daily Traffic Report Settings ---${NC}"
+        echo "1) Send Report NOW (Instant)"
+        echo "2) Set/Change Auto-Report Time (Default 00:00)"
+        echo "3) Disable Daily Report"
+        echo "4) Back"
+        read -p "Select [1-4]: " r_opt
+
+        case $r_opt in
+            1)
+                echo -e "${YELLOW}[*] Collecting data and sending...${NC}"
+                [ -f $TELEGRAM_CONF ] && source $TELEGRAM_CONF
+                if [ -z "$TOKEN" ]; then
+                    echo -e "${RED}❌ Telegram not configured!${NC}"
+                else
+                    RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+                    S=$(wg show wg0 transfer 2>/dev/null)
+                    CD=$(echo $S | awk '{print $2}' | sed 's/[^0-9]//g'); CU=$(echo $S | awk '{print $5}' | sed 's/[^0-9]//g')
+                    TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CD:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CU:-0} ))
+                    MSG="📊 *Manual Traffic Report*%0A🖥 *Host:* $(hostname)%0A🔄 *Resets:* $RC%0A📥 *Total Down:* $((TD/1048576)) MB%0A📤 *Total Up:* $((TU/1048576)) MB"
+                    curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=$MSG" -d "parse_mode=Markdown" >/dev/null 2>&1
+                    echo -e "${GREEN}✔ Report sent!${NC}"
+                fi
+                sleep 2 ;;
+            2)
+                read -p "Enter Time (HH:MM): " R_TIME
+                if [[ $R_TIME =~ ^([01]?[0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+                    sed -i "s/== \"[0-9]\{2\}:[0-9]\{2\}\"/== \"$R_TIME\"/g" $HEALER_SCRIPT
+                    echo -e "${GREEN}✔ Time updated to $R_TIME.${NC}"
+                else echo -e "${RED}❌ Invalid format!${NC}"; fi
+                sleep 2 ;;
+            3)
+                sed -i "s/== \"[0-9]\{2\}:[0-9]\{2\}\"/== \"OFF\"/g" $HEALER_SCRIPT
+                echo -e "${YELLOW}✔ Disabled.${NC}"
+                sleep 2 ;;
+            4) break ;;
+        esac
+    done
+}
+
 # --- 4. Status ---
 
 show_status() {

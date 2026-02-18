@@ -192,23 +192,36 @@ send_daily_report() {
 }
 
 setup_auto_healer() {
-    touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
-    chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
+    while true; do
+        clear
+        echo -e "${CYAN}--- Auto-Healer & Diagnostic Management ---${NC}"
+        echo "1) Enable/Install Healer"
+        echo "2) Disable/Remove Healer"
+        echo "3) Enable Debug (Diagnostic Log)"
+        echo "4) Disable Debug (Diagnostic Log)"
+        echo "5) View Diagnostic Logs"
+        echo "6) Back to Main Menu"
+        read -p "Select [1-6]: " h_opt
 
-    cat <<'EOF' > $HEALER_SCRIPT
+        case $h_opt in
+            1)
+                touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
+                chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
+                
+                cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
 TARGET="10.0.0.1"; grep -q "10.0.0.1" /etc/wireguard/wg0.conf && TARGET="10.0.0.2"
+LOG_FILE="/var/log/tunnel_debug.log"
 
 check_connection() {
-    # لایه ۱: بررسی وجود اینترفیس
+    # لایه ۱: بررسی وجود اینترفیس (بسیار حیاتی)
     if ! ip link show wg0 > /dev/null 2>&1; then return 1; fi
 
-    # لایه ۲ و ۳: پینگ ۴ تایی از داخل تانل و استخراج میانگین
+    # لایه ۲ و ۳: پینگ ۴ تایی اجباری از wg0 و بررسی میانگین لگ (300ms)
     PING_RES=$(ping -I wg0 -c 4 $TARGET 2>/dev/null | tail -1 | awk -F'/' '{print $5}' | cut -d'.' -f1)
 
-    # حساسیت روی ۳۰۰ میلی‌ثانیه (مناسب برای تانل‌های ایران)
     if [ -z "$PING_RES" ] || [ "$PING_RES" -lt 1 ] || [ "$PING_RES" -gt 300 ]; then
         return 1
     fi
@@ -216,29 +229,69 @@ check_connection() {
 }
 
 if ! check_connection; then
+    # اگر دیباگ فعال باشد، لاگ می‌گیرد
+    if [ -f "$LOG_FILE" ]; then
+        echo "--- ⚠️ Diagnostic Start $(date) ---" >> $LOG_FILE
+        echo "Reason: Latency > 300ms or Interface Down" >> $LOG_FILE
+        echo "1. Memory: $(free -h | awk '/Mem:/ {print "RAM:"$3"/"$2}')" >> $LOG_FILE
+        echo "2. System Load: $(uptime | awk -F'load average:' '{print $2}')" >> $LOG_FILE
+        echo "3. Status: $(systemctl is-active tunnel)" >> $LOG_FILE
+        echo "--- ⚠️ Diagnostic End ---" >> $LOG_FILE
+    fi
+
+    # ذخیره آمار ترافیک قبل از ریست
     STATS=$(wg show wg0 transfer 2>/dev/null)
     D=$(echo $STATS | awk '{print $2}' | sed 's/[^0-9]//g'); U=$(echo $STATS | awk '{print $5}' | sed 's/[^0-9]//g')
     [ -n "$D" ] && echo $(( $(cat /etc/total_down 2>/dev/null || echo 0) + D )) > /etc/total_down
     [ -n "$U" ] && echo $(( $(cat /etc/total_up 2>/dev/null || echo 0) + U )) > /etc/total_up
     
+    # عملیات اصلی ریکاوری
     systemctl stop tunnel; wg-quick down wg0; ip link delete wg0 2>/dev/null; systemctl start tunnel; sleep 5; wg-quick up wg0
-    
     C=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0); echo $((C + 1)) > /etc/tunnel_reset_count
     
-    [ -n "$TOKEN" ] && curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Alarm*%0A🖥 *Host:* $(hostname)%0A🔄 *Status:* Tunnel Recovered (High Latency or Link Down)" -d "parse_mode=Markdown" >/dev/null 2>&1
+    # ارسال پیام تلگرام در پس‌زمینه (&)
+    [ -n "$TOKEN" ] && curl -sk --connect-timeout 5 --max-time 15 -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Alarm*%0A🖥 *Host:* $(hostname)%0A🔄 *Status:* Recovered (3-Layer Check)" -d "parse_mode=Markdown" >/dev/null 2>&1 &
 fi
 
+# گزارش ساعت 12 شب
 if [ "$(date +%H:%M)" == "00:00" ]; then
     RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
     S=$(wg show wg0 transfer 2>/dev/null); CD=$(echo $S | awk '{print $2}' | sed 's/[^0-9]//g'); CU=$(echo $S | awk '{print $5}' | sed 's/[^0-9]//g')
     TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CD:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CU:-0} ))
-    [ -n "$TOKEN" ] && curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Report%0A🔁 Resets: $RC%0A📥 Total Down: $((TD/1048576)) MB%0A📤 Total Up: $((TU/1048576)) MB" >/dev/null 2>&1
+    [ -n "$TOKEN" ] && curl -sk --connect-timeout 5 -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Report%0A🔁 Resets: $RC%0A📥 Down: $((TD/1048576)) MB%0A📤 Up: $((TU/1048576)) MB" -d "parse_mode=Markdown" >/dev/null 2>&1 &
+    [ $(( $(date +%d) % 3 )) -eq 0 ] && rm -f $LOG_FILE
     echo "0" > /etc/tunnel_reset_count; echo "0" > /etc/total_down; echo "0" > /etc/total_up
 fi
 EOF
-    chmod +x $HEALER_SCRIPT
-    (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-    echo -e "${GREEN}✔ Ultimate Healer installed (Sensitivity: 300ms).${NC}"
+                chmod +x $HEALER_SCRIPT
+                (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
+                echo -e "${GREEN}✔ Ultimate Healer installed and scheduled.${NC}"
+                sleep 2 ;;
+
+            2)
+                crontab -l 2>/dev/null | grep -v "tunnel_healer.sh" | crontab -
+                rm -f $HEALER_SCRIPT
+                echo -e "${RED}✔ Healer removed.${NC}"
+                sleep 2 ;;
+
+            3)
+                touch /var/log/tunnel_debug.log && chmod 666 /var/log/tunnel_debug.log
+                echo -e "${GREEN}✔ Debugging enabled.${NC}"
+                sleep 2 ;;
+
+            4)
+                rm -f /var/log/tunnel_debug.log
+                echo -e "${YELLOW}✔ Debugging disabled.${NC}"
+                sleep 2 ;;
+
+            5)
+                clear; echo -e "${CYAN}--- Diagnostic Logs ---${NC}"
+                [ -f /var/log/tunnel_debug.log ] && tail -n 50 /var/log/tunnel_debug.log || echo "No logs found."
+                read -p "Press Enter to return..." ;;
+
+            6) break ;;
+        esac
+    done
 }
 
 # --- 4. Status ---
@@ -252,7 +305,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -278,7 +331,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.03 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

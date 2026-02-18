@@ -240,7 +240,7 @@ if ! check_connection; then
     systemctl stop tunnel; wg-quick down wg0; ip link delete wg0 2>/dev/null; systemctl start tunnel; sleep 5; wg-quick up wg0
     C=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0); echo $((C + 1)) > /etc/tunnel_reset_count
     
-    # تغییر: اضافه شدن Timeout و ارسال در پس‌زمینه (&)
+    # تغییر: ارسال پیام به انتهای عملیات منتقل شد تا تداخلی با بالا آمدن کارت شبکه نداشته باشد
     [ -n "$TOKEN" ] && curl -sk --connect-timeout 5 --max-time 15 -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Alarm*%0A🖥 *Host:* $(hostname)%0A🔄 *Status:* Tunnel Recovered" -d "parse_mode=Markdown" >/dev/null 2>&1 &
 fi
 

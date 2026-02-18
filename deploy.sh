@@ -192,110 +192,53 @@ send_daily_report() {
 }
 
 setup_auto_healer() {
-    while true; do
-        clear
-        echo -e "${CYAN}--- Auto-Healer & Diagnostic Management ---${NC}"
-        echo "1) Enable/Install Healer"
-        echo "2) Disable/Remove Healer"
-        echo "3) Enable Debug (Diagnostic Log)"
-        echo "4) Disable Debug (Diagnostic Log)"
-        echo "5) View Diagnostic Logs"
-        echo "6) Back to Main Menu"
-        read -p "Select [1-6]: " h_opt
+    touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
+    chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
 
-        case $h_opt in
-            1)
-                # نصب هیلر (فقط اضافه شدن Timeout و حالت Background برای پیام‌ها)
-                touch /etc/tunnel_reset_count /etc/total_down /etc/total_up
-                chmod 666 /etc/tunnel_reset_count /etc/total_down /etc/total_up
-                
-                cat <<'EOF' > $HEALER_SCRIPT
+    cat <<'EOF' > $HEALER_SCRIPT
 #!/bin/bash
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 [ -f /etc/tunnel_telegram.conf ] && source /etc/tunnel_telegram.conf
 TARGET="10.0.0.1"; grep -q "10.0.0.1" /etc/wireguard/wg0.conf && TARGET="10.0.0.2"
-LOG_FILE="/var/log/tunnel_debug.log"
 
 check_connection() {
-    for i in {1..3}; do ping -c 1 -W 3 $TARGET > /dev/null 2>&1 && return 0; sleep 2; done; return 1
+    # لایه ۱: بررسی وجود اینترفیس
+    if ! ip link show wg0 > /dev/null 2>&1; then return 1; fi
+
+    # لایه ۲ و ۳: پینگ ۴ تایی از داخل تانل و استخراج میانگین
+    PING_RES=$(ping -I wg0 -c 4 $TARGET 2>/dev/null | tail -1 | awk -F'/' '{print $5}' | cut -d'.' -f1)
+
+    # حساسیت روی ۳۰۰ میلی‌ثانیه (مناسب برای تانل‌های ایران)
+    if [ -z "$PING_RES" ] || [ "$PING_RES" -lt 1 ] || [ "$PING_RES" -gt 300 ]; then
+        return 1
+    fi
+    return 0
 }
 
 if ! check_connection; then
-    # اگر فایل لاگ وجود داشته باشد یعنی دیباگ فعال است
-    if [ -f "$LOG_FILE" ]; then
-        echo "--- ⚠️ Diagnostic Start $(date) ---" >> $LOG_FILE
-        echo "1. Memory: $(free -h | awk '/Mem:/ {print "RAM:"$3"/"$2} /Swap:/ {print "Swap:"$3"/"$2}')" >> $LOG_FILE
-        echo "2. System Load: $(uptime | awk -F'load average:' '{print $2}')" >> $LOG_FILE
-        PING_RES=$(ping -c 4 -W 2 8.8.8.8)
-        [ $? -eq 0 ] && echo "3. Net (8.8.8.8): OK" >> $LOG_FILE || echo "3. Net (8.8.8.8): FAIL" >> $LOG_FILE
-        echo "4. Status: $(systemctl is-active tunnel)" >> $LOG_FILE
-        echo "--- ⚠️ Diagnostic End ---" >> $LOG_FILE
-    fi
-
-    # عملیات اصلی ریکاوری شما
     STATS=$(wg show wg0 transfer 2>/dev/null)
     D=$(echo $STATS | awk '{print $2}' | sed 's/[^0-9]//g'); U=$(echo $STATS | awk '{print $5}' | sed 's/[^0-9]//g')
     [ -n "$D" ] && echo $(( $(cat /etc/total_down 2>/dev/null || echo 0) + D )) > /etc/total_down
     [ -n "$U" ] && echo $(( $(cat /etc/total_up 2>/dev/null || echo 0) + U )) > /etc/total_up
+    
     systemctl stop tunnel; wg-quick down wg0; ip link delete wg0 2>/dev/null; systemctl start tunnel; sleep 5; wg-quick up wg0
+    
     C=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0); echo $((C + 1)) > /etc/tunnel_reset_count
     
-    # تغییر: ارسال پیام به انتهای عملیات منتقل شد تا تداخلی با بالا آمدن کارت شبکه نداشته باشد
-    [ -n "$TOKEN" ] && curl -sk --connect-timeout 5 --max-time 15 -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Alarm*%0A🖥 *Host:* $(hostname)%0A🔄 *Status:* Tunnel Recovered" -d "parse_mode=Markdown" >/dev/null 2>&1 &
+    [ -n "$TOKEN" ] && curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=🚨 *Auto-Heal Alarm*%0A🖥 *Host:* $(hostname)%0A🔄 *Status:* Tunnel Recovered (High Latency or Link Down)" -d "parse_mode=Markdown" >/dev/null 2>&1
 fi
 
-# گزارش روزانه و پاکسازی 3 روزه لاگ
 if [ "$(date +%H:%M)" == "00:00" ]; then
-    if [ -n "$TOKEN" ]; then
-        RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
-        S=$(wg show wg0 transfer 2>/dev/null)
-        CD=$(echo $S | awk '{print $2}' | sed 's/[^0-9]//g'); CU=$(echo $S | awk '{print $5}' | sed 's/[^0-9]//g')
-        TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CD:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CU:-0} ))
-        MSG="📊 *Daily Traffic Report*%0A🖥 *Host:* $(hostname)%0A🔄 *Resets:* $RC%0A📥 *Total Down:* $((TD/1048576)) MB%0A📤 *Total Up:* $((TU/1048576)) MB"
-        
-        # تغییر: اضافه شدن Timeout و ارسال در پس‌زمینه (&)
-        curl -sk --connect-timeout 5 --max-time 20 -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=$MSG" -d "parse_mode=Markdown" >/dev/null 2>&1 &
-    fi
-    # پاکسازی لاگ هر 3 روز
-    [ $(( $(date +%d) % 3 )) -eq 0 ] && rm -f $LOG_FILE
+    RC=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+    S=$(wg show wg0 transfer 2>/dev/null); CD=$(echo $S | awk '{print $2}' | sed 's/[^0-9]//g'); CU=$(echo $S | awk '{print $5}' | sed 's/[^0-9]//g')
+    TD=$(( $(cat /etc/total_down 2>/dev/null || echo 0) + ${CD:-0} )); TU=$(( $(cat /etc/total_up 2>/dev/null || echo 0) + ${CU:-0} ))
+    [ -n "$TOKEN" ] && curl -sk -X POST "$TG_URL/bot$TOKEN/sendMessage" -d "chat_id=$CHATID" -d "text=📊 Daily Report%0A🔁 Resets: $RC%0A📥 Total Down: $((TD/1048576)) MB%0A📤 Total Up: $((TU/1048576)) MB" >/dev/null 2>&1
     echo "0" > /etc/tunnel_reset_count; echo "0" > /etc/total_down; echo "0" > /etc/total_up
 fi
 EOF
-                chmod +x $HEALER_SCRIPT
-                (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
-                echo -e "${GREEN}✔ Healer installed and scheduled.${NC}"
-                sleep 2 ;;
-
-            2)
-                crontab -l 2>/dev/null | grep -v "tunnel_healer.sh" | crontab -
-                rm -f $HEALER_SCRIPT
-                echo -e "${RED}✔ Healer removed.${NC}"
-                sleep 2 ;;
-
-            3)
-                touch /var/log/tunnel_debug.log
-                chmod 666 /var/log/tunnel_debug.log
-                echo -e "${GREEN}✔ Debugging (Log generation) enabled.${NC}"
-                sleep 2 ;;
-
-            4)
-                rm -f /var/log/tunnel_debug.log
-                echo -e "${YELLOW}✔ Debugging disabled (Log file removed).${NC}"
-                sleep 2 ;;
-
-            5)
-                clear
-                echo -e "${CYAN}--- Diagnostic Logs (BlackBox) ---${NC}"
-                if [ -f /var/log/tunnel_debug.log ]; then
-                    tail -n 50 /var/log/tunnel_debug.log
-                else
-                    echo "Debug is not active or no logs recorded yet."
-                fi
-                read -p "Press Enter to return..." ;;
-
-            6) break ;;
-        esac
-    done
+    chmod +x $HEALER_SCRIPT
+    (crontab -l 2>/dev/null | grep -v "tunnel_healer.sh"; echo "* * * * * $HEALER_SCRIPT") | crontab -
+    echo -e "${GREEN}✔ Ultimate Healer installed (Sensitivity: 300ms).${NC}"
 }
 
 # --- 4. Status ---

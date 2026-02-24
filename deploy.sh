@@ -305,7 +305,7 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
@@ -320,6 +320,60 @@ show_status() {
     read -p "Press Enter..."
 }
 
+# --- Firewall & Security ---
+
+manage_firewall() {
+    while true; do
+        clear
+        echo -e "${CYAN}--- Firewall & Security Manager ---${NC}"
+        echo "1) Active (Limit Tunnel Port to Iran IP Only)"
+        echo "2) Deactive (Open Port for All)"
+        echo "3) Back"
+        read -p "Select [1-3]: " fw_opt
+
+        # پیدا کردن پورت فعال از دلِ سرویس یونیت
+        CURRENT_PORT=$(grep -oP '(?<=-l0.0.0.0:)[^ ]+' /etc/systemd/system/tunnel.service 2>/dev/null)
+        [ -z "$CURRENT_PORT" ] && CURRENT_PORT=$(grep -oP '(?<=-r [0-9.]+:)[^ ]+' /etc/systemd/system/tunnel.service 2>/dev/null)
+
+        case $fw_opt in
+            1)
+                if [ -z "$CURRENT_PORT" ]; then
+                    echo -e "${RED}❌ Tunnel service not found!${NC}"
+                else
+                    read -p "Enter Iran Server IP: " IR_IP
+                    if [[ $IR_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                        # پاکسازی قوانین قبلی
+                        iptables -D INPUT -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP 2>/dev/null
+                        # اعمال قانون جدید
+                        iptables -I INPUT -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP
+                        
+                        # دائمی کردن در rc.local
+                        [ ! -f /etc/rc.local ] && echo -e "#!/bin/bash\nexit 0" > /etc/rc.local && chmod +x /etc/rc.local
+                        sed -i "/iptables -I INPUT -p tcp --dport $CURRENT_PORT/d" /etc/rc.local
+                        sed -i "s/^exit 0/iptables -I INPUT -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP\nexit 0/" /etc/rc.local
+                        
+                        echo -e "${GREEN}✔ Secured! Port $CURRENT_PORT is now locked to $IR_IP.${NC}"
+                    else
+                        echo -e "${RED}❌ Invalid IP Address!${NC}"
+                    fi
+                fi
+                sleep 2 ;;
+            2)
+                if [ -n "$CURRENT_PORT" ]; then
+                    # حذف قانون از iptables
+                    iptables -S INPUT | grep "dport $CURRENT_PORT" | grep "!" | sed 's/-A/iptables -D/' | bash 2>/dev/null
+                    # حذف از rc.local
+                    sed -i "/iptables -I INPUT -p tcp --dport $CURRENT_PORT/d" /etc/rc.local
+                    echo -e "${YELLOW}✔ Firewall removed. Port $CURRENT_PORT is open.${NC}"
+                else
+                    echo -e "${RED}❌ Tunnel Port not found.${NC}"
+                fi
+                sleep 2 ;;
+            3) break ;;
+        esac
+    done
+}
+
 # --- Main Menu ---
 
 while true; do
@@ -331,7 +385,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.02 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"
@@ -339,8 +393,9 @@ echo "3) Telegram Bot Settings"
 echo "4) Anti-Lag Auto-Healer"
 echo "5) Daily Traffic Report"
 echo "6) Show Full System Status"
-echo "7) Uninstall"
-echo "8) Exit"
+echo "7) Firewall Management (Security)"
+echo "8) Uninstall"
+echo "9) Exit"
 read -p "Select: " opt
 
 case $opt in
@@ -389,7 +444,8 @@ EOF
     4) setup_auto_healer ;;
     5) send_daily_report ;;
     6) show_status ;;
-    7)  
+    7) manage_firewall ;;
+    8)  
             clear
             echo -e "${RED}>>> Uninstall Management <<<${NC}"
             echo "1) Uninstall Everything (Full Reset)"
@@ -429,7 +485,7 @@ EOF
                 5) continue ;;
             esac
             ;;
-    8) exit 0 ;;
+    9) exit 0 ;;
 esac
 done
 

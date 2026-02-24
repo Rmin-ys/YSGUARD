@@ -305,10 +305,27 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.01 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
+    
+# --- بخش جدید فایروال و هیلر ---
+    CURRENT_PORT=$(grep -E "\-l|\-r" /etc/systemd/system/tunnel.service 2>/dev/null | grep -oP ':[0-9]+' | head -n 1 | tr -d ':')
+    if [ -n "$CURRENT_PORT" ]; then
+        if iptables -S INPUT | grep -q "dport $CURRENT_PORT.*DROP"; then
+            ALLOWED_IP=$(iptables -S INPUT | grep "dport $CURRENT_PORT" | grep "!" | awk '{print $4}')
+            echo -e "Firewall Status:  ${GREEN}LOCKED to $ALLOWED_IP${NC} (Port $CURRENT_PORT)"
+        else
+            echo -e "Firewall Status:  ${YELLOW}OPEN for All${NC} (Port $CURRENT_PORT)"
+        fi
+    fi
+
+    if [ -f "/etc/tunnel_reset_count" ]; then
+        RESETS=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
+        echo -e "Self-Healer:      ${GREEN}ACTIVE${NC} (Resets: ${YELLOW}$RESETS${NC})"
+    fi
+    # ------------------------------
     
     G_COUNT=$(ls /etc/systemd/system/gost-*.service 2>/dev/null | wc -l)
     H_COUNT=$(grep -c "listen forward-" $HAPROXY_CONF 2>/dev/null || echo 0)
@@ -331,28 +348,30 @@ manage_firewall() {
         echo "3) Back"
         read -p "Select [1-3]: " fw_opt
 
-        # پیدا کردن پورت فعال از دلِ سرویس یونیت
-        CURRENT_PORT=$(grep -oP '(?<=-l0.0.0.0:)[^ ]+' /etc/systemd/system/tunnel.service 2>/dev/null)
-        [ -z "$CURRENT_PORT" ] && CURRENT_PORT=$(grep -oP '(?<=-r [0-9.]+:)[^ ]+' /etc/systemd/system/tunnel.service 2>/dev/null)
+        # استخراج پورت: دنبال عدد بعد از دونقطه در خطوط مربوط به Listen یا Remote می‌گردد
+        CURRENT_PORT=$(grep -E "\-l|\-r" /etc/systemd/system/tunnel.service 2>/dev/null | grep -oP ':[0-9]+' | head -n 1 | tr -d ':')
 
         case $fw_opt in
             1)
                 if [ -z "$CURRENT_PORT" ]; then
-                    echo -e "${RED}❌ Tunnel service not found!${NC}"
+                    echo -e "${RED}❌ Tunnel port not found in service file!${NC}"
                 else
                     read -p "Enter Iran Server IP: " IR_IP
                     if [[ $IR_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                        # پاکسازی قوانین قبلی
-                        iptables -D INPUT -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP 2>/dev/null
-                        # اعمال قانون جدید
-                        iptables -I INPUT -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP
+                        echo -e "${YELLOW}Cleaning up old rules...${NC}"
+                        # حذف تمام قوانین قبلی مربوط به این پورت (بدون توجه به آی‌پی)
+                        iptables -S INPUT | grep "dport $CURRENT_PORT" | sed 's/-A/iptables -D/' | bash 2>/dev/null
+                        
+                        echo -e "${YELLOW}Applying new security rule (Priority 1)...${NC}"
+                        # درج قانون جدید در ردیف ۱ برای بالاترین اولویت
+                        iptables -I INPUT 1 -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP
                         
                         # دائمی کردن در rc.local
                         [ ! -f /etc/rc.local ] && echo -e "#!/bin/bash\nexit 0" > /etc/rc.local && chmod +x /etc/rc.local
-                        sed -i "/iptables -I INPUT -p tcp --dport $CURRENT_PORT/d" /etc/rc.local
-                        sed -i "s/^exit 0/iptables -I INPUT -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP\nexit 0/" /etc/rc.local
+                        sed -i "/dport $CURRENT_PORT/d" /etc/rc.local
+                        sed -i "s|^exit 0|iptables -I INPUT 1 -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP\nexit 0|" /etc/rc.local
                         
-                        echo -e "${GREEN}✔ Secured! Port $CURRENT_PORT is now locked to $IR_IP.${NC}"
+                        echo -e "${GREEN}✔ SECURED! Port $CURRENT_PORT is now ONLY accessible by $IR_IP.${NC}"
                     else
                         echo -e "${RED}❌ Invalid IP Address!${NC}"
                     fi
@@ -360,13 +379,12 @@ manage_firewall() {
                 sleep 2 ;;
             2)
                 if [ -n "$CURRENT_PORT" ]; then
-                    # حذف قانون از iptables
-                    iptables -S INPUT | grep "dport $CURRENT_PORT" | grep "!" | sed 's/-A/iptables -D/' | bash 2>/dev/null
-                    # حذف از rc.local
-                    sed -i "/iptables -I INPUT -p tcp --dport $CURRENT_PORT/d" /etc/rc.local
-                    echo -e "${YELLOW}✔ Firewall removed. Port $CURRENT_PORT is open.${NC}"
+                    echo -e "${YELLOW}Removing firewall rules...${NC}"
+                    iptables -S INPUT | grep "dport $CURRENT_PORT" | sed 's/-A/iptables -D/' | bash 2>/dev/null
+                    sed -i "/dport $CURRENT_PORT/d" /etc/rc.local
+                    echo -e "${GREEN}✔ Port $CURRENT_PORT is now public (Open for all).${NC}"
                 else
-                    echo -e "${RED}❌ Tunnel Port not found.${NC}"
+                    echo -e "${RED}❌ Tunnel port not found.${NC}"
                 fi
                 sleep 2 ;;
             3) break ;;
@@ -385,7 +403,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.02 ]${NC}"
+    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.01 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"

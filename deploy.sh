@@ -305,27 +305,10 @@ show_status() {
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.00 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
     systemctl is-active --quiet tunnel && echo -e "Tunnel (udp2raw): ${GREEN}RUNNING${NC}" || echo -e "Tunnel: ${RED}STOPPED${NC}"
     wg show wg0 2>/dev/null | grep -q "interface" && echo -e "WireGuard (wg0):  ${GREEN}ACTIVE${NC}" || echo -e "WireGuard: ${RED}INACTIVE${NC}"
-    
-# --- بخش جدید فایروال و هیلر ---
-    CURRENT_PORT=$(grep -E "\-l|\-r" /etc/systemd/system/tunnel.service 2>/dev/null | grep -oP ':[0-9]+' | head -n 1 | tr -d ':')
-    if [ -n "$CURRENT_PORT" ]; then
-        if iptables -S INPUT | grep -q "dport $CURRENT_PORT.*DROP"; then
-            ALLOWED_IP=$(iptables -S INPUT | grep "dport $CURRENT_PORT" | grep "!" | awk '{print $4}')
-            echo -e "Firewall Status:  ${GREEN}LOCKED to $ALLOWED_IP${NC} (Port $CURRENT_PORT)"
-        else
-            echo -e "Firewall Status:  ${YELLOW}OPEN for All${NC} (Port $CURRENT_PORT)"
-        fi
-    fi
-
-    if [ -f "/etc/tunnel_reset_count" ]; then
-        RESETS=$(cat /etc/tunnel_reset_count 2>/dev/null || echo 0)
-        echo -e "Self-Healer:      ${GREEN}ACTIVE${NC} (Resets: ${YELLOW}$RESETS${NC})"
-    fi
-    # ------------------------------
     
     G_COUNT=$(ls /etc/systemd/system/gost-*.service 2>/dev/null | wc -l)
     H_COUNT=$(grep -c "listen forward-" $HAPROXY_CONF 2>/dev/null || echo 0)
@@ -335,61 +318,6 @@ show_status() {
     wg show wg0 transfer 2>/dev/null || echo "No data available."
     echo -e "${CYAN}========================================================${NC}"
     read -p "Press Enter..."
-}
-
-# --- Firewall & Security ---
-
-manage_firewall() {
-    while true; do
-        clear
-        echo -e "${CYAN}--- Firewall & Security Manager ---${NC}"
-        echo "1) Active (Limit Tunnel Port to Iran IP Only)"
-        echo "2) Deactive (Open Port for All)"
-        echo "3) Back"
-        read -p "Select [1-3]: " fw_opt
-
-        # استخراج پورت: دنبال عدد بعد از دونقطه در خطوط مربوط به Listen یا Remote می‌گردد
-        CURRENT_PORT=$(grep -E "\-l|\-r" /etc/systemd/system/tunnel.service 2>/dev/null | grep -oP ':[0-9]+' | head -n 1 | tr -d ':')
-
-        case $fw_opt in
-            1)
-                if [ -z "$CURRENT_PORT" ]; then
-                    echo -e "${RED}❌ Tunnel port not found in service file!${NC}"
-                else
-                    read -p "Enter Iran Server IP: " IR_IP
-                    if [[ $IR_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                        echo -e "${YELLOW}Cleaning up old rules...${NC}"
-                        # حذف تمام قوانین قبلی مربوط به این پورت (بدون توجه به آی‌پی)
-                        iptables -S INPUT | grep "dport $CURRENT_PORT" | sed 's/-A/iptables -D/' | bash 2>/dev/null
-                        
-                        echo -e "${YELLOW}Applying new security rule (Priority 1)...${NC}"
-                        # درج قانون جدید در ردیف ۱ برای بالاترین اولویت
-                        iptables -I INPUT 1 -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP
-                        
-                        # دائمی کردن در rc.local
-                        [ ! -f /etc/rc.local ] && echo -e "#!/bin/bash\nexit 0" > /etc/rc.local && chmod +x /etc/rc.local
-                        sed -i "/dport $CURRENT_PORT/d" /etc/rc.local
-                        sed -i "s|^exit 0|iptables -I INPUT 1 -p tcp --dport $CURRENT_PORT ! -s $IR_IP -j DROP\nexit 0|" /etc/rc.local
-                        
-                        echo -e "${GREEN}✔ SECURED! Port $CURRENT_PORT is now ONLY accessible by $IR_IP.${NC}"
-                    else
-                        echo -e "${RED}❌ Invalid IP Address!${NC}"
-                    fi
-                fi
-                sleep 2 ;;
-            2)
-                if [ -n "$CURRENT_PORT" ]; then
-                    echo -e "${YELLOW}Removing firewall rules...${NC}"
-                    iptables -S INPUT | grep "dport $CURRENT_PORT" | sed 's/-A/iptables -D/' | bash 2>/dev/null
-                    sed -i "/dport $CURRENT_PORT/d" /etc/rc.local
-                    echo -e "${GREEN}✔ Port $CURRENT_PORT is now public (Open for all).${NC}"
-                else
-                    echo -e "${RED}❌ Tunnel port not found.${NC}"
-                fi
-                sleep 2 ;;
-            3) break ;;
-        esac
-    done
 }
 
 # --- Main Menu ---
@@ -403,7 +331,7 @@ echo -e "${CYAN}========================================================"
     echo -e "  ╚██╔╝  ╚════██║██║   ██║██║   ██║██╔══██║██╔══██╗██║  ██║"
     echo -e "   ██║   ███████║╚██████╔╝╚██████╔╝██║  ██║██║  ██║██████╔╝"
     echo -e "   ╚═╝   ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ "
-    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.01 ]${NC}"
+    echo -e "${WHITE}               [ MASTER TUNNEL PRO v1.00 ]${NC}"
     echo -e "${CYAN}========================================================${NC}"
 echo "1) Install/Update Tunnel (Core)"
 echo "2) Port Forwarder (GOST / HAProxy)"
@@ -411,9 +339,8 @@ echo "3) Telegram Bot Settings"
 echo "4) Anti-Lag Auto-Healer"
 echo "5) Daily Traffic Report"
 echo "6) Show Full System Status"
-echo "7) Firewall Management (Security)"
-echo "8) Uninstall"
-echo "9) Exit"
+echo "7) Uninstall"
+echo "8) Exit"
 read -p "Select: " opt
 
 case $opt in
@@ -462,8 +389,7 @@ EOF
     4) setup_auto_healer ;;
     5) send_daily_report ;;
     6) show_status ;;
-    7) manage_firewall ;;
-    8)  
+    7)  
             clear
             echo -e "${RED}>>> Uninstall Management <<<${NC}"
             echo "1) Uninstall Everything (Full Reset)"
@@ -503,7 +429,7 @@ EOF
                 5) continue ;;
             esac
             ;;
-    9) exit 0 ;;
+    8) exit 0 ;;
 esac
 done
 
